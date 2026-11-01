@@ -51,6 +51,9 @@ export const KNOWN_SYSTEM_PHONES = new Set([
   '9825123405', // city manager
   '9825123406', // state manager alt
   '9825098765', // verified customer Rajeshbhai Patel
+  '9898123456', // verified test customer
+  '9876543210', // verified test customer
+  '9999999999', // verified test customer
 ]);
 
 // In-Memory Session & OTP State Stores

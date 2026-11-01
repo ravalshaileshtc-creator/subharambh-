@@ -169,7 +169,7 @@ export default function AuthModal({
   };
 
   // ----------------------------------------------------------------------------
-  // ONE-CLICK INSTANT BYPASS LOGIN (OTP: 123456)
+  // ONE-CLICK INSTANT BYPASS LOGIN / SIGNUP (OTP: 123456)
   // ----------------------------------------------------------------------------
   const handleQuickBypassLogin = async () => {
     setErrorMessage('');
@@ -183,17 +183,27 @@ export default function AuthModal({
       setPhone(targetPhone);
     }
 
-    const regName = fullName.trim() || 'Valued Customer';
-    if (authMode === 'signup' && !fullName.trim()) {
-      setFullName(regName);
+    let isRegistering = authMode === 'signup';
+    // If in Login mode, verify if number is registered; if not registered, seamlessly register
+    if (!isRegistering) {
+      const reg = await checkUserRegistrationStatus(targetPhone);
+      if (!reg.isRegistered) {
+        isRegistering = true;
+        setAuthMode('signup');
+      }
+    }
+
+    const regName = fullName.trim() || (isRegistering ? 'Valued Customer' : '');
+    if (isRegistering && !fullName.trim()) {
+      setFullName('Valued Customer');
     }
 
     setLoading(true);
     try {
-      // Step 1: Send OTP to generate local session
+      // Step 1: Send OTP to generate session
       const sendRes = await sendMobileOtp(targetPhone, {
-        isSignUp: authMode === 'signup',
-        fullName: regName,
+        isSignUp: isRegistering,
+        fullName: regName || 'Valued Customer',
       });
 
       if (!sendRes.success) {
@@ -204,8 +214,8 @@ export default function AuthModal({
 
       // Step 2: Verify with 123456
       const res = await verifyMobileOtp(targetPhone, '123456', {
-        isSignUp: authMode === 'signup',
-        fullName: regName,
+        isSignUp: isRegistering,
+        fullName: regName || 'Valued Customer',
       });
 
       setLoading(false);
@@ -386,6 +396,53 @@ export default function AuthModal({
                   autoComplete="tel"
                 />
               </View>
+
+              {/* Quick Fill Demo Test Accounts (Bypass OTP 123456) */}
+              {authMode === 'login' && (
+                <View style={styles.demoAccountsBox}>
+                  <Text style={styles.demoAccountsLabel}>⚡ Demo Accounts (Bypass OTP: 123456):</Text>
+                  <View style={styles.demoChipsRow}>
+                    <TouchableOpacity
+                      style={[styles.demoChip, phone === '9825098765' && styles.demoChipActive]}
+                      onPress={() => {
+                        setPhone('9825098765');
+                        setErrorMessage('');
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.demoChipText, phone === '9825098765' && styles.demoChipTextActive]}>
+                        👤 Customer
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.demoChip, phone === '9825123401' && styles.demoChipActive]}
+                      onPress={() => {
+                        setPhone('9825123401');
+                        setErrorMessage('');
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.demoChipText, phone === '9825123401' && styles.demoChipTextActive]}>
+                        🏪 Vendor
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.demoChip, phone === '9825111111' && styles.demoChipActive]}
+                      onPress={() => {
+                        setPhone('9825111111');
+                        setErrorMessage('');
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.demoChipText, phone === '9825111111' && styles.demoChipTextActive]}>
+                        👑 Admin
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
             </View>
 
             {/* Send OTP CTA */}
@@ -944,5 +1001,46 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '800',
     color: '#b45309',
+  },
+  demoAccountsBox: {
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 8,
+  },
+  demoAccountsLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1d4ed8',
+    marginBottom: 6,
+  },
+  demoChipsRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  demoChip: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 6,
+    paddingVertical: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  demoChipActive: {
+    backgroundColor: '#1976D2',
+    borderColor: '#1976D2',
+  },
+  demoChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1e40af',
+  },
+  demoChipTextActive: {
+    color: '#ffffff',
+    fontWeight: '800',
   },
 });
