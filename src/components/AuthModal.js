@@ -177,26 +177,35 @@ export default function AuthModal({
 
     let targetPhone = phone.trim();
     if (!targetPhone) {
-      targetPhone = '9876543210';
+      targetPhone = authMode === 'signup'
+        ? '9825' + Math.floor(100000 + Math.random() * 900000)
+        : '9825098765'; // Registered customer Rajeshbhai Patel
       setPhone(targetPhone);
     }
 
+    const regName = fullName.trim() || 'Valued Customer';
     if (authMode === 'signup' && !fullName.trim()) {
-      setFullName('Valued Customer');
+      setFullName(regName);
     }
 
     setLoading(true);
     try {
       // Step 1: Send OTP to generate local session
-      await sendMobileOtp(targetPhone, {
+      const sendRes = await sendMobileOtp(targetPhone, {
         isSignUp: authMode === 'signup',
-        fullName: fullName.trim() || 'Valued Customer',
+        fullName: regName,
       });
+
+      if (!sendRes.success) {
+        setLoading(false);
+        setErrorMessage(t(sendRes.error) || sendRes.message);
+        return;
+      }
 
       // Step 2: Verify with 123456
       const res = await verifyMobileOtp(targetPhone, '123456', {
         isSignUp: authMode === 'signup',
-        fullName: fullName.trim() || 'Valued Customer',
+        fullName: regName,
       });
 
       setLoading(false);
@@ -292,6 +301,29 @@ export default function AuthModal({
               <Text style={styles.attemptSubText}>
                 Attempts remaining: {remainingAttempts} / 5
               </Text>
+            )}
+            {/* Quick Mode Switch Prompt for Unregistered or Already Registered accounts */}
+            {authMode === 'login' && (errorMessage.includes('not registered') || errorMessage.includes('નોંધાયેલ નથી') || errorMessage.includes('पंजीकृत नहीं')) && (
+              <TouchableOpacity
+                style={styles.switchModeActionBtn}
+                onPress={() => switchMode('signup')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.switchModeActionText}>
+                  📝 {t('register_with_this_number')}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {authMode === 'signup' && (errorMessage.includes('already registered') || errorMessage.includes('પહેલેથી નોંધાયેલ') || errorMessage.includes('पहले से पंजीकृत')) && (
+              <TouchableOpacity
+                style={styles.switchModeActionBtn}
+                onPress={() => switchMode('login')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.switchModeActionText}>
+                  🔑 {t('login_with_this_number')}
+                </Text>
+              </TouchableOpacity>
             )}
           </View>
         ) : null}
@@ -665,6 +697,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     marginTop: 4,
+  },
+  switchModeActionBtn: {
+    marginTop: 8,
+    backgroundColor: '#b45309',
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  switchModeActionText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   successBox: {
     backgroundColor: '#f0fdf4',

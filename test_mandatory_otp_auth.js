@@ -185,7 +185,7 @@ async function main() {
   // ----------------------------------------------------------------------------
   await runAsyncTest('New User Sign Up assigns customer role and not_applicable status', async () => {
     clearActiveOtpSessionsForTest();
-    const newPhone = '9876543210';
+    const newPhone = '9876' + Math.floor(100000 + Math.random() * 900000);
     const sendRes = await sendMobileOtp(newPhone, { isSignUp: true, fullName: 'Deepak Shah' });
     assert(sendRes.success === true, 'Sign up OTP sent');
 

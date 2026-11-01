@@ -39,10 +39,26 @@ export function generateDeterministicUuid(phone) {
   return `c0570000-0000-4000-8000-${digits}`;
 }
 
+// Whitelist of Known Registered System Accounts (Admin, Super Admin, Vendors, Managers, Seed Customers)
+export const KNOWN_SYSTEM_PHONES = new Set([
+  '9825111111', // super_admin
+  '9825123400', // admin
+  '9825123401', // vendor approved
+  '9825445566', // vendor pending
+  '9825998877', // vendor rejected
+  '9825332211', // vendor suspended
+  '9825123404', // state manager
+  '9825123405', // city manager
+  '9825123406', // state manager alt
+  '9825098765', // verified customer Rajeshbhai Patel
+]);
+
 // In-Memory Session & OTP State Stores
 let activeSession = null;
 const activeOtpSessions = new Map(); // phone -> { tokenHash, salt, attempts, maxAttempts, expiresAt, cooldownUntil, isSignUp, fullName }
 const lockedOutPhones = new Map(); // phone -> lockoutTimestamp
+const dynamicallyRegisteredPhones = new Set(); // phone -> registered in current memory/tests
+const registeredProfilesStore = new Map(); // phone -> profile object (preserves full_name, role, etc.)
 
 // Test helper store for automated testing verification
 const dispatchedOtpsForTest = new Map();
@@ -163,6 +179,102 @@ export function maskPhone(phone) {
 }
 
 // ------------------------------------------------------------------------------
+// CHECK USER REGISTRATION STATUS (SECURE SERVER-SIDE & REPO AUDIT)
+// Never exposes sensitive credentials or private tokens
+// ------------------------------------------------------------------------------
+export async function checkUserRegistrationStatus(rawPhone) {
+  const norm = normalizeIndianPhone(rawPhone);
+  if (!norm.valid) {
+    return { valid: false, isRegistered: false, error: 'invalid_phone' };
+  }
+
+  const cleanPhone = norm.phone;
+
+  // 1. Check in-memory registered profile store
+  if (registeredProfilesStore.has(cleanPhone)) {
+    const profile = registeredProfilesStore.get(cleanPhone);
+    return {
+      valid: true,
+      isRegistered: true,
+      phone: cleanPhone,
+      role: profile.role || 'customer',
+      fullName: profile.full_name,
+      source: 'memory_cache',
+    };
+  }
+
+  // 1.1 Check known system accounts & dynamic registration cache
+  if (KNOWN_SYSTEM_PHONES.has(cleanPhone) || dynamicallyRegisteredPhones.has(cleanPhone)) {
+    return {
+      valid: true,
+      isRegistered: true,
+      phone: cleanPhone,
+      source: 'system_account',
+    };
+  }
+
+  // 2. Query Supabase server-side RPC (secure, does not leak sensitive data)
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.rpc('check_account_registration', {
+        p_phone: cleanPhone,
+      });
+
+      if (!error && data && data.is_registered !== undefined) {
+        if (data.is_registered) {
+          dynamicallyRegisteredPhones.add(cleanPhone);
+          registeredProfilesStore.set(cleanPhone, {
+            phone: cleanPhone,
+            role: data.role || 'customer',
+            full_name: data.full_name,
+          });
+        }
+        return {
+          valid: true,
+          isRegistered: Boolean(data.is_registered),
+          phone: cleanPhone,
+          role: data.role || null,
+          fullName: data.full_name || null,
+          source: 'supabase_rpc',
+        };
+      }
+    } catch (e) {
+      // Stored procedure not yet deployed, fallback to PostgREST table queries
+    }
+
+    // 3. Fallback: Direct Supabase profiles table query
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('id, phone, role, full_name, vendor_status')
+        .eq('phone', cleanPhone)
+        .maybeSingle();
+
+      if (!error && profile) {
+        dynamicallyRegisteredPhones.add(cleanPhone);
+        registeredProfilesStore.set(cleanPhone, profile);
+        return {
+          valid: true,
+          isRegistered: true,
+          phone: cleanPhone,
+          role: profile.role,
+          fullName: profile.full_name,
+          source: 'supabase_table',
+        };
+      }
+    } catch (e) {
+      // Table check note
+    }
+  }
+
+  return {
+    valid: true,
+    isRegistered: false,
+    phone: cleanPhone,
+  };
+}
+
+// ------------------------------------------------------------------------------
 // SEND MOBILE OTP WITH COOLDOWN & SECURITY LIMITS
 // ------------------------------------------------------------------------------
 export async function sendMobileOtp(rawPhone, { isSignUp = false, fullName = '' } = {}) {
@@ -175,16 +287,43 @@ export async function sendMobileOtp(rawPhone, { isSignUp = false, fullName = '' 
     };
   }
 
-  if (isSignUp && (!fullName || !fullName.trim())) {
-    return {
-      success: false,
-      error: 'enter_name_error',
-      message: 'Please enter your full name for new registration.',
-    };
-  }
-
   const cleanPhone = norm.phone;
   const now = Date.now();
+
+  // ----------------------------------------------------------------------------
+  // STRICT LOGIN VS. REGISTRATION SEPARATION
+  // ----------------------------------------------------------------------------
+  const regStatus = await checkUserRegistrationStatus(cleanPhone);
+
+  if (!isSignUp) {
+    // LOGIN FLOW: User MUST be already registered
+    if (!regStatus.isRegistered) {
+      return {
+        success: false,
+        error: 'account_not_registered',
+        message: 'This mobile number is not registered. Please register first.',
+      };
+    }
+  } else {
+    // REGISTRATION FLOW:
+    // 1. Must provide full name
+    if (!fullName || !fullName.trim()) {
+      return {
+        success: false,
+        error: 'enter_name_error',
+        message: 'Please enter your full name for new registration.',
+      };
+    }
+
+    // 2. Must NOT be already registered (Prevent duplicate accounts)
+    if (regStatus.isRegistered) {
+      return {
+        success: false,
+        error: 'account_already_registered',
+        message: 'Account already registered with this mobile number. Please log in.',
+      };
+    }
+  }
 
   // 1. Rate Limiting: 60-Second Resend Cooldown
   const existing = activeOtpSessions.get(cleanPhone);
@@ -291,7 +430,23 @@ export async function verifyMobileOtp(rawPhone, inputOtp, { isSignUp = false, fu
 
   if (!session) {
     if (isMasterBypass) {
-      // Auto-synthesize session for instant bypass verification
+      // For master bypass, verify registration status strictly matches intent
+      const regStatus = await checkUserRegistrationStatus(cleanPhone);
+      if (!isSignUp && !regStatus.isRegistered) {
+        return {
+          success: false,
+          error: 'account_not_registered',
+          message: 'This mobile number is not registered. Please register first.',
+        };
+      }
+      if (isSignUp && regStatus.isRegistered) {
+        return {
+          success: false,
+          error: 'account_already_registered',
+          message: 'Account already registered with this mobile number. Please log in.',
+        };
+      }
+
       session = {
         phone: cleanPhone,
         salt: `salt_${cleanPhone}_master`,
@@ -399,13 +554,21 @@ export async function verifyMobileOtp(rawPhone, inputOtp, { isSignUp = false, fu
   });
 
   // ----------------------------------------------------------------------------
-  // SUPABASE DATABASE CUSTOMER PROFILE RECORDING
-  // 1. Reads verified mobile number and customer name
-  // 2. Creates/updates public.profiles record with id, phone, full_name, role, timestamps
-  // 3. Idempotent: Loads existing profile if present, preserving admin/vendor roles
+  // SUPABASE DATABASE CUSTOMER PROFILE RECORDING & ROLE SYNC
+  // 1. If Sign Up: Registers new profile strictly as customer (rejects duplicates)
+  // 2. If Login: Only updates existing profile, NEVER creates new profile
+  // 3. Preserves existing admin, vendor, and manager roles
   // ----------------------------------------------------------------------------
   try {
-    const syncRes = await syncCustomerProfileToSupabase(authenticatedUser);
+    const syncRes = await syncCustomerProfileToSupabase(authenticatedUser, { isSignUp });
+    if (!syncRes.success && (syncRes.error === 'account_not_registered' || syncRes.error === 'account_already_registered')) {
+      return {
+        success: false,
+        error: syncRes.error,
+        message: syncRes.message,
+      };
+    }
+
     if (syncRes && syncRes.user) {
       // NEVER downgrade an admin, superadmin, manager, or vendor to customer
       const isPrivilegedRole = authenticatedUser.role && authenticatedUser.role !== ROLES.CUSTOMER;
@@ -424,20 +587,43 @@ export async function verifyMobileOtp(rawPhone, inputOtp, { isSignUp = false, fu
     console.warn('⚠️ [Supabase DB] Failed to sync profile to database:', syncErr.message);
   }
 
+  // Record in dynamic registry cache
+  dynamicallyRegisteredPhones.add(cleanPhone);
+
   // Persist session
   saveAuthSession(authenticatedUser);
 
   return {
     success: true,
     user: authenticatedUser,
-    message: `Welcome, ${authenticatedUser.full_name}! Successfully logged in.`,
+    message: isSignUp
+      ? `Welcome to Shubh Celebrations, ${authenticatedUser.full_name}! Account created.`
+      : `Welcome back, ${authenticatedUser.full_name}! Successfully logged in.`,
   };
+}
+
+// ------------------------------------------------------------------------------
+// DEDICATED SEPARATE REGISTRATION & LOGIN ENDPOINTS
+// ------------------------------------------------------------------------------
+
+/**
+ * Register New Customer Profile (Strictly for un-registered numbers)
+ */
+export async function registerNewCustomerProfile(userPayload) {
+  return syncCustomerProfileToSupabase(userPayload, { isSignUp: true });
+}
+
+/**
+ * Login Existing User Profile (Strictly for registered numbers, never inserts)
+ */
+export async function loginExistingUserProfile(cleanPhone) {
+  return syncCustomerProfileToSupabase({ phone: cleanPhone }, { isSignUp: false });
 }
 
 // ------------------------------------------------------------------------------
 // IDEMPOTENT SUPABASE PROFILES DATABASE SYNCHRONIZER
 // ------------------------------------------------------------------------------
-export async function syncCustomerProfileToSupabase(userPayload) {
+export async function syncCustomerProfileToSupabase(userPayload, { isSignUp = false } = {}) {
   if (!supabase) {
     return { success: false, error: 'supabase_client_null', user: userPayload };
   }
@@ -447,81 +633,62 @@ export async function syncCustomerProfileToSupabase(userPayload) {
   const authId = userPayload.id && userPayload.id.length === 36 ? userPayload.id : generateDeterministicUuid(cleanPhone);
 
   try {
-    // 1. First attempt: Call atomic idempotent stored procedure if deployed
-    try {
-      const { data: rpcData, error: rpcErr } = await supabase.rpc('register_or_login_customer', {
-        p_phone: cleanPhone,
-        p_full_name: fullName || null,
-        p_auth_id: authId,
-      });
+    // --------------------------------------------------------------------------
+    // FLOW A: REGISTRATION (NEW ACCOUNT ONLY)
+    // --------------------------------------------------------------------------
+    if (isSignUp) {
+      // 1. Attempt specialized registration stored procedure if deployed
+      try {
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('register_new_customer', {
+          p_phone: cleanPhone,
+          p_full_name: fullName,
+          p_auth_id: authId,
+        });
 
-      if (!rpcErr && rpcData) {
-        return {
-          success: true,
-          source: 'supabase_rpc',
-          user: {
-            ...userPayload,
-            id: rpcData.id || authId,
-            full_name: rpcData.full_name || userPayload.full_name,
-            role: rpcData.role || userPayload.role,
-            vendor_status: rpcData.vendor_status || userPayload.vendor_status,
-            created_at: rpcData.created_at || userPayload.created_at,
-            updated_at: rpcData.updated_at || userPayload.updated_at,
-          },
-        };
-      }
-    } catch (e) {
-      // Stored procedure not yet deployed, fallback to PostgREST table queries
-    }
-
-    // 2. Second attempt: Direct Supabase profiles table query & upsert
-    const { data: existingProfile, error: selectErr } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('phone', cleanPhone)
-      .maybeSingle();
-
-    if (existingProfile) {
-      // Existing User: Preserve existing role, account status, and registration date!
-      // NEVER overwrite vendor or admin roles with customer!
-      const updatePayload = {
-        updated_at: new Date().toISOString(),
-      };
-      if (fullName && fullName !== existingProfile.full_name) {
-        updatePayload.full_name = fullName;
+        if (!rpcErr && rpcData) {
+          dynamicallyRegisteredPhones.add(cleanPhone);
+          registeredProfilesStore.set(cleanPhone, rpcData);
+          return {
+            success: true,
+            source: 'supabase_rpc_register',
+            user: { ...userPayload, ...rpcData },
+          };
+        } else if (rpcErr && rpcErr.message?.includes('already registered')) {
+          return {
+            success: false,
+            error: 'account_already_registered',
+            message: 'Account already registered with this mobile number. Please log in.',
+          };
+        }
+      } catch (e) {
+        // Fall through to PostgREST checks
       }
 
-      const { data: updatedProfile, error: updateErr } = await supabase
+      // 2. Query profiles to strictly prevent duplicate accounts
+      const { data: existing } = await supabase
         .from('profiles')
-        .update(updatePayload)
-        .eq('id', existingProfile.id)
-        .select()
+        .select('id, phone')
+        .eq('phone', cleanPhone)
         .maybeSingle();
 
-      return {
-        success: !updateErr,
-        source: 'supabase_table_update',
-        error: updateErr ? updateErr.message : null,
-        user: {
-          ...userPayload,
-          ...(updatedProfile || existingProfile),
-        },
-      };
-    } else {
-      // New Customer Registration: Insert fresh customer record into public.profiles
+      if (existing) {
+        return {
+          success: false,
+          error: 'account_already_registered',
+          message: 'Account already registered with this mobile number. Please log in.',
+        };
+      }
+
+      // 3. Insert fresh customer profile strictly with 'customer' role
       const insertPayload = {
         id: authId,
         phone: cleanPhone,
-        full_name: fullName || `Customer (${cleanPhone.slice(-4)})`,
-        role: 'customer', // Strictly customer default
-        created_at: userPayload.created_at || new Date().toISOString(),
+        full_name: fullName || 'Valued Customer',
+        role: 'customer',
+        vendor_status: 'not_applicable',
+        created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-
-      // Only pass vendor_status if it is an explicit vendor status (e.g. pending/approved/rejected)
-      if (userPayload.vendor_status && userPayload.vendor_status !== 'not_applicable') {
-        insertPayload.vendor_status = userPayload.vendor_status;
-      }
 
       const { data: insertedProfile, error: insertErr } = await supabase
         .from('profiles')
@@ -539,14 +706,100 @@ export async function syncCustomerProfileToSupabase(userPayload) {
         };
       }
 
+      const createdRecord = insertedProfile || insertPayload;
+      dynamicallyRegisteredPhones.add(cleanPhone);
+      registeredProfilesStore.set(cleanPhone, createdRecord);
       return {
         success: true,
         source: 'supabase_table_insert',
         user: {
           ...userPayload,
-          ...insertedProfile,
+          ...createdRecord,
         },
       };
+    }
+
+    // --------------------------------------------------------------------------
+    // FLOW B: LOGIN (EXISTING USERS ONLY - NEVER INSERT A NEW PROFILE)
+    // --------------------------------------------------------------------------
+    if (!isSignUp) {
+      // 1. Attempt login stored procedure if deployed
+      try {
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('login_existing_user', {
+          p_phone: cleanPhone,
+        });
+
+        if (!rpcErr && rpcData) {
+          return {
+            success: true,
+            source: 'supabase_rpc_login',
+            user: { ...userPayload, ...rpcData },
+          };
+        } else if (rpcErr && rpcErr.message?.includes('not registered')) {
+          return {
+            success: false,
+            error: 'account_not_registered',
+            message: 'This mobile number is not registered. Please register first.',
+          };
+        }
+      } catch (e) {
+        // Fall through to table query
+      }
+
+      // 2. Query profiles table
+      const { data: existingProfile, error: selectErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('phone', cleanPhone)
+        .maybeSingle();
+
+      if (!existingProfile && !KNOWN_SYSTEM_PHONES.has(cleanPhone) && !dynamicallyRegisteredPhones.has(cleanPhone)) {
+        return {
+          success: false,
+          error: 'account_not_registered',
+          message: 'This mobile number is not registered. Please register first.',
+        };
+      }
+
+      if (existingProfile) {
+        // Update updated_at timestamp without modifying role or registration status
+        const updatePayload = {
+          updated_at: new Date().toISOString(),
+        };
+        if (isSignUp && fullName && !fullName.startsWith('Customer (')) {
+          updatePayload.full_name = fullName;
+        }
+
+        const { data: updatedProfile, error: updateErr } = await supabase
+          .from('profiles')
+          .update(updatePayload)
+          .eq('id', existingProfile.id)
+          .select()
+          .maybeSingle();
+
+        const activeProfile = updatedProfile || existingProfile;
+        registeredProfilesStore.set(cleanPhone, activeProfile);
+
+        return {
+          success: !updateErr,
+          source: 'supabase_table_login',
+          error: updateErr ? updateErr.message : null,
+          user: {
+            ...userPayload,
+            ...activeProfile,
+            full_name: activeProfile.full_name || userPayload.full_name,
+            role: activeProfile.role || userPayload.role,
+            vendor_status: activeProfile.vendor_status || userPayload.vendor_status,
+          },
+        };
+      } else {
+        // Seed user exists in memory system list
+        return {
+          success: true,
+          source: 'system_seed_user',
+          user: userPayload,
+        };
+      }
     }
   } catch (err) {
     console.warn('⚠️ [Supabase DB] Sync exception:', err.message);
@@ -605,8 +858,11 @@ function resolveUserProfile(phone, { isSignUp = false, fullName = '', supabaseUs
   }
 
   // 5. Default Customer Profile (All standard signups & logins)
+  const cachedProfile = registeredProfilesStore.get(phone);
   const resolvedName = fullName
     ? fullName.trim()
+    : cachedProfile?.full_name
+    ? cachedProfile.full_name
     : phone === '9825098765'
     ? 'Rajeshbhai Patel'
     : `Customer (${phone.slice(-4)})`;
@@ -690,4 +946,16 @@ export function clearActiveOtpSessionsForTest() {
   dispatchedOtpsForTest.clear();
   lockedOutPhones.clear();
   activeSession = null;
+}
+
+export function clearAllTestRegistrations() {
+  dynamicallyRegisteredPhones.clear();
+  registeredProfilesStore.clear();
+}
+
+export function registerTestPhone(phone) {
+  const norm = normalizeIndianPhone(phone);
+  if (norm.valid) {
+    dynamicallyRegisteredPhones.add(norm.phone);
+  }
 }
