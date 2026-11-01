@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { getCustomerBookings } from '../services/rbacService';
 import { getDirectPayments } from '../services/marketplaceEngine';
+import BillBookView from './BillBookView';
 
 export default function CustomerDashboard({
   user,
@@ -68,6 +69,15 @@ export default function CustomerDashboard({
         >
           <Text style={[styles.subTabText, subTab === 'payments' && styles.subTabTextActive]}>
             💳 Direct Payments ({directPayments.length})
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.subTab, subTab === 'invoices' && styles.subTabActive]}
+          onPress={() => setSubTab('invoices')}
+        >
+          <Text style={[styles.subTabText, subTab === 'invoices' && styles.subTabTextActive]}>
+            🧾 Invoices & Bills
           </Text>
         </TouchableOpacity>
 
@@ -229,6 +239,12 @@ export default function CustomerDashboard({
                 <Text style={styles.logoutBtnText}>🔒 Sign Out of Customer Account</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        )}
+        {/* SUBTAB 4: INVOICES & BILLS (CUSTOMER ACCESS) */}
+        {subTab === 'invoices' && (
+          <View style={[styles.tabSection, { minHeight: 550, backgroundColor: '#ffffff', borderRadius: 12, overflow: 'hidden' }]}>
+            <BillBookView mode="customer" user={user} />
           </View>
         )}
       </ScrollView>

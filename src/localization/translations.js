@@ -247,6 +247,15 @@ export const TRANSLATIONS = {
     action_suspend: 'Suspend Vendor',
 
     // Common Alerts & Actions
+    bill_book: 'Bill Book',
+    my_invoices: 'Invoices & Receipts',
+    create_bill: 'Create New Bill',
+    bill_no: 'Bill No.',
+    event_particulars: 'Event Particulars',
+    subtotal: 'Subtotal',
+    grand_total: 'Grand Total',
+    advance_paid: 'Advance Paid',
+    balance_due: 'Balance Due',
     close: 'Close',
     save: 'Save',
     cancel: 'Cancel',
@@ -493,6 +502,15 @@ export const TRANSLATIONS = {
     action_suspend: 'વેન્ડર સસ્પેન્ડ કરો',
 
     // Common Alerts & Actions
+    bill_book: 'બિલ બુક',
+    my_invoices: 'મારા ઇન્વોઇસ અને રસીદો',
+    create_bill: 'નવું બિલ બનાવો',
+    bill_no: 'બિલ નં.',
+    event_particulars: 'પ્રસંગ વિગત',
+    subtotal: 'કુલ રકમ',
+    grand_total: 'આખરી રકમ',
+    advance_paid: 'એડવાન્સ જમા',
+    balance_due: 'બાકી રકમ',
     close: 'બંધ કરો',
     save: 'સાચવો',
     cancel: 'રદ કરો',
@@ -739,6 +757,15 @@ export const TRANSLATIONS = {
     action_suspend: 'वेंडर निलंबित करें',
 
     // Common Alerts & Actions
+    bill_book: 'बिल बुक',
+    my_invoices: 'मेरे इनवॉइस और रसीदें',
+    create_bill: 'नया बिल बनाएं',
+    bill_no: 'बिल नं.',
+    event_particulars: 'कार्यक्रम विवरण',
+    subtotal: 'उप-कुल',
+    grand_total: 'कुल योग',
+    advance_paid: 'अग्रिम भुगतान',
+    balance_due: 'बकाया राशि',
     close: 'बंद करें',
     save: 'सहेजें',
     cancel: 'रद्द करें',

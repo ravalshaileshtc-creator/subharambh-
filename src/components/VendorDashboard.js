@@ -33,6 +33,7 @@ import {
   deleteVendorPortfolioPhoto,
   getVendorProfileCompletion,
 } from '../services/marketplaceService';
+import BillBookView from './BillBookView';
 
 export default function VendorDashboard({
   user,
@@ -346,6 +347,15 @@ export default function VendorDashboard({
           </TouchableOpacity>
 
           <TouchableOpacity
+            style={[styles.tab, subTab === 'bill_book' && styles.tabActive]}
+            onPress={() => setSubTab('bill_book')}
+          >
+            <Text style={[styles.tabText, subTab === 'bill_book' && styles.tabTextActive]}>
+              📑 Bill Book & Invoices
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={[styles.tab, subTab === 'commission' && styles.tabActive]}
             onPress={() => setSubTab('commission')}
           >
@@ -517,6 +527,13 @@ export default function VendorDashboard({
                 )}
               </View>
             ))}
+          </View>
+        )}
+
+        {/* TAB: BILL BOOK & INVOICES (VENDORS ONLY) */}
+        {subTab === 'bill_book' && (
+          <View style={{ minHeight: 650, backgroundColor: '#ffffff', borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
+            <BillBookView mode="vendor" user={user} />
           </View>
         )}
 

@@ -82,6 +82,7 @@ import {
   runHealthCheck,
 } from '../services/superAdminService';
 import { getCompanyFinancials } from '../services/rbacService';
+import BillBookView from './BillBookView';
 
 // Module Group Definitions
 const MODULE_GROUPS = [
@@ -124,6 +125,7 @@ const MODULE_GROUPS = [
     tabs: [
       { id: 'reconciliation', label: '12. 5% Commission' },
       { id: 'direct_payments', label: '13. Direct Payments' },
+      { id: 'bill_book', label: '📑 Bill Books' },
       { id: 'financials', label: 'Profit & Margins' },
       { id: 'regions', label: '8. Geography & PINs' },
       { id: 'notifications', label: '15. Broadcasts' },
@@ -1208,6 +1210,15 @@ export default function AdminDashboard({
                 <Text style={styles.cardTime}>Paid: {new Date(dp.paid_at).toLocaleString()}</Text>
               </View>
             ))}
+          </View>
+        )}
+
+        {/* ================================================================== */}
+        {/* MODULE: VENDOR BILL BOOKS & DIGITAL INVOICES */}
+        {/* ================================================================== */}
+        {subTab === 'bill_book' && (
+          <View style={{ minHeight: 650, backgroundColor: '#ffffff', borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
+            <BillBookView mode="admin" user={user} />
           </View>
         )}
 
