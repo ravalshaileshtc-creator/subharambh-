@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Expo & Web Builds
+.expo/
+dist/
+web-build/
+
+# Binary & Packaging Artifacts
+*.apk
+*.aab
+*.zip
+*.tar.gz
+
+# Environment Files
+.env
+.env.local
+.env.*.local
+
+# Backups
+backup_*/
+*.bak_*
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

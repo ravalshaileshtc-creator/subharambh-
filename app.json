@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Panchmahal Events Hub",
+    "slug": "panchmahal-events",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#d97706"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.panchmahalevents.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#d97706"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "name": "Panchmahal Events Hub",
+      "shortName": "Panchmahal Events",
+      "backgroundColor": "#d97706",
+      "themeColor": "#d97706",
+      "display": "standalone",
+      "orientation": "portrait"
+    }
+  }
+}
