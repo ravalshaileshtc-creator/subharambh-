@@ -232,72 +232,593 @@ export async function fetchAllCustomers(query = '') {
 }
 
 // ==============================================================================
-// MODULE 3: VENDOR MANAGEMENT
+// MODULE 3 & 4: STRICT VENDOR LISTING APPROVALS & BUSINESS DIRECTORY ENGINE
 // ==============================================================================
-export async function fetchAllVendors(query = '', categoryFilter = 'all', statusFilter = 'all') {
-  let vendorList = [];
 
+// In-Memory Business Listings Synchronizer
+let localBusinessListings = [
+  {
+    id: 1,
+    business_name: 'Vallabh Decoration & Event Management',
+    category: 'mandap',
+    location: 'Behind Deep Hospital, Bamroli Road, Godhra',
+    price_range: '₹25,000 - ₹95,000',
+    phone: '9825123401',
+    owner_phone: '9825123401',
+    owner_name: 'Vallabh Patel',
+    description: 'Specialists in Grand Entrance Gates, Royal LED Stage, Rajwadi Mandap, and designer flower decoration.',
+    rating: 4.9,
+    is_verified: true,
+    listing_status: 'approved',
+    is_approved: true,
+    account_status: 'active',
+    service_radius_km: 50,
+    created_at: '2026-06-01T12:00:00Z',
+    approved_at: '2026-06-02T10:00:00Z',
+    approved_by: 'usr-admin-001',
+  },
+  {
+    id: 2,
+    business_name: 'Ganesh Royal Catering Services',
+    category: 'catering',
+    location: 'Prabha Road, Near Bus Station, Godhra',
+    price_range: '₹350 - ₹950 per dish',
+    phone: '9825123402',
+    owner_phone: '9825123402',
+    owner_name: 'Ganeshbhai Maharaj',
+    description: 'Authentic Gujarati Thali, Kathiyawadi, Punjabi, and live counters for wedding ceremonies.',
+    rating: 4.8,
+    is_verified: true,
+    listing_status: 'approved',
+    is_approved: true,
+    account_status: 'active',
+    service_radius_km: 65,
+    created_at: '2026-06-15T09:00:00Z',
+    approved_at: '2026-06-16T11:00:00Z',
+    approved_by: 'usr-admin-001',
+  },
+  {
+    id: 101,
+    business_name: 'Shree Ram Mandap & Sound System',
+    category: 'mandap',
+    location: 'Near Old Bus Stand, Godhra',
+    price_range: '₹20,000 - ₹60,000',
+    phone: '9825445566',
+    owner_phone: '9825445566',
+    owner_name: 'Rameshbhai Prajapati',
+    description: 'Traditional Gujarati Mandap, Chori, and Sound system.',
+    rating: 5.0,
+    is_verified: false,
+    listing_status: 'pending',
+    is_approved: false,
+    account_status: 'pending',
+    created_at: '2026-10-30T10:15:00Z',
+  },
+  {
+    id: 102,
+    business_name: 'Royal Caterers & Banquet Services',
+    category: 'catering',
+    location: 'Halol Highway, Halol',
+    price_range: '₹300 - ₹800 per dish',
+    phone: '9825998877',
+    owner_phone: '9825998877',
+    owner_name: 'Kiritbhai Baria',
+    description: 'Halol catering with multi-cuisine options.',
+    rating: 4.5,
+    is_verified: false,
+    listing_status: 'rejected',
+    is_approved: false,
+    account_status: 'inactive',
+    rejection_reason: 'Verification phone unreachable and local address proof missing.',
+    created_at: '2026-10-24T14:20:00Z',
+    rejected_at: '2026-10-26T11:00:00Z',
+  },
+  {
+    id: 103,
+    business_name: 'Rajput Royal DJ & Sound',
+    category: 'dj',
+    location: 'Kalol Road, Godhra',
+    price_range: '₹15,000 - ₹45,000',
+    phone: '9825332211',
+    owner_phone: '9825332211',
+    owner_name: 'Vikram Rajput',
+    description: 'High bass DJ setup and disco lights for wedding baraat.',
+    rating: 4.6,
+    is_verified: false,
+    listing_status: 'suspended',
+    is_approved: false,
+    account_status: 'suspended',
+    rejection_reason: 'Direct payment dispute and platform commission overdue.',
+    created_at: '2026-05-10T10:00:00Z',
+    suspended_at: '2026-10-20T16:00:00Z',
+  },
+];
+
+/**
+ * Submit New Business Listing (Strictly Defaults to Pending & Unapproved)
+ */
+export async function submitBusinessListing(payload) {
+  const cleanPhone = String(payload.phone || '').replace(/\D/g, '').slice(-10);
+  const cleanName = String(payload.business_name || '').trim();
+  const cleanCategory = String(payload.category || '').toLowerCase().trim();
+  const cleanLoc = String(payload.location || '').trim();
+  const cleanPrice = String(payload.price_range || '').trim();
+  const cleanDesc = String(payload.description || '').trim();
+
+  if (!cleanName || cleanName.length < 3) {
+    return { success: false, error: 'invalid_name', message: 'Business name must be at least 3 characters.' };
+  }
+  if (!cleanPhone || cleanPhone.length !== 10 || !/^[6-9]\d{9}$/.test(cleanPhone)) {
+    return { success: false, error: 'invalid_phone', message: 'Please enter a valid 10-digit Indian mobile number.' };
+  }
+  if (!cleanPrice) {
+    return { success: false, error: 'missing_price', message: 'Please provide a starting price or price range.' };
+  }
+  if (!cleanLoc) {
+    return { success: false, error: 'missing_location', message: 'Please specify the business location.' };
+  }
+
+  // Duplicate Check: Same phone number or exact business name in same city
+  const isDuplicate = localBusinessListings.some(
+    (l) =>
+      (l.phone === cleanPhone || l.owner_phone === cleanPhone) &&
+      (l.listing_status === 'approved' || l.listing_status === 'pending')
+  );
+  if (isDuplicate) {
+    return {
+      success: false,
+      error: 'duplicate_listing',
+      message: `A business listing with mobile number +91 ${cleanPhone} already exists.`,
+    };
+  }
+
+  const newListingId = Date.now();
+  const newListing = {
+    id: newListingId,
+    business_name: cleanName,
+    category: cleanCategory || 'mandap',
+    location: cleanLoc,
+    price_range: cleanPrice,
+    phone: cleanPhone,
+    owner_phone: cleanPhone,
+    owner_name: payload.owner_name || cleanName,
+    owner_id: payload.owner_id || null,
+    description: cleanDesc || 'Local event service provider in Panchmahal.',
+    image_url: payload.image_url || null,
+    instagram_handle: payload.instagram_handle ? String(payload.instagram_handle).replace('@', '') : null,
+    rating: 5.0,
+    is_verified: false,
+    listing_status: 'pending', // Strictly Pending
+    is_approved: false,        // Strictly False
+    account_status: 'pending',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  localBusinessListings.unshift(newListing);
+
+  // Sync to Supabase if configured
   if (supabase) {
     try {
-      const { data, error } = await supabase
-        .from('vendors')
-        .select('*')
-        .order('id', { ascending: true });
+      // 1. Attempt specialized RPC
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('submit_vendor_listing', {
+        p_business_name: cleanName,
+        p_category: cleanCategory,
+        p_location: cleanLoc,
+        p_price_range: cleanPrice,
+        p_phone: cleanPhone,
+        p_description: cleanDesc,
+        p_image_url: newListing.image_url,
+        p_instagram_handle: newListing.instagram_handle,
+        p_owner_name: newListing.owner_name,
+        p_owner_id: newListing.owner_id,
+      });
 
+      if (!rpcErr && rpcData) {
+        newListing.id = rpcData.id || newListing.id;
+      } else {
+        // Fallback direct insert with column fallback
+        const baseInsert = {
+          business_name: cleanName,
+          category: cleanCategory,
+          location: cleanLoc,
+          price_range: cleanPrice,
+          phone: cleanPhone,
+          description: cleanDesc,
+          rating: 5.0,
+          is_verified: false,
+        };
+        const { error: insErr } = await supabase.from('vendors').insert([baseInsert]);
+        if (insErr) {
+          console.warn('⚠️ [Supabase] Direct insert note:', insErr.message);
+        }
+      }
+    } catch (e) {
+      // Offline fallback
+    }
+  }
+
+  recordAdminAction(cleanPhone, 'SUBMIT_VENDOR_LISTING', 'vendor', {
+    listingId: newListing.id,
+    business_name: cleanName,
+    phone: cleanPhone,
+  });
+
+  return {
+    success: true,
+    listing: newListing,
+    message: 'Your business listing is submitted and waiting for Admin approval.',
+  };
+}
+
+/**
+ * Fetch All Business Listings for Admin Management
+ */
+export async function fetchBusinessListings(statusFilter = 'all') {
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.from('vendors').select('*').order('id', { ascending: false });
       if (!error && data && data.length > 0) {
-        vendorList = data;
+        // Merge with local state preserving any runtime updates
+        data.forEach((remote) => {
+          const idx = localBusinessListings.findIndex((l) => l.id === remote.id);
+          if (idx >= 0) {
+            localBusinessListings[idx] = { ...remote, ...localBusinessListings[idx] };
+          } else {
+            localBusinessListings.push({
+              ...remote,
+              listing_status: remote.listing_status || (remote.is_verified ? 'approved' : 'pending'),
+              is_approved: remote.is_approved !== undefined ? remote.is_approved : Boolean(remote.is_verified),
+              account_status: remote.account_status || 'active',
+            });
+          }
+        });
       }
     } catch (e) {
       // Fallback
     }
   }
 
-  if (vendorList.length === 0) {
-    // Fallback seed vendors if Supabase fetch is empty
-    vendorList = [
-      {
-        id: 1,
-        business_name: 'Vallabh Decoration & Event Management',
-        category: 'mandap',
-        location: 'Behind Deep Hospital, Bamroli Road, Godhra',
-        price_range: '₹25,000 - ₹95,000',
-        phone: '9825123401',
-        description: 'Specialists in Grand Entrance Gates, Royal LED Stage, Rajwadi Mandap, and designer flower decoration.',
-        rating: 4.9,
-        is_verified: true,
-        service_radius_km: 50,
-      },
-      {
-        id: 2,
-        business_name: 'Ganesh Royal Catering Services',
-        category: 'catering',
-        location: 'Prabha Road, Near Bus Station, Godhra',
-        price_range: '₹350 - ₹950 per dish',
-        phone: '9825123402',
-        description: 'Authentic Gujarati Thali, Kathiyawadi, Punjabi, and live counters for wedding ceremonies.',
-        rating: 4.8,
-        is_verified: true,
-        service_radius_km: 65,
-      },
-    ];
+  if (statusFilter === 'all') return localBusinessListings;
+  if (statusFilter === 'pending') {
+    return localBusinessListings.filter((l) => l.listing_status === 'pending');
+  }
+  if (statusFilter === 'approved') {
+    return localBusinessListings.filter(
+      (l) => l.listing_status === 'approved' && l.is_approved === true && l.account_status === 'active'
+    );
+  }
+  if (statusFilter === 'rejected') {
+    return localBusinessListings.filter((l) => l.listing_status === 'rejected');
+  }
+  if (statusFilter === 'suspended') {
+    return localBusinessListings.filter((l) => l.listing_status === 'suspended' || l.account_status === 'suspended');
+  }
+  if (statusFilter === 'correction_requested') {
+    return localBusinessListings.filter((l) => l.listing_status === 'correction_requested');
+  }
+  return localBusinessListings;
+}
+
+/**
+ * Verify Admin Approval Permission
+ */
+function verifyAdminApprovalPermission(adminUser) {
+  if (!adminUser) return false;
+  if (adminUser.role === ROLES.SUPER_ADMIN || adminUser.role === ROLES.ADMIN) {
+    return true;
+  }
+  if (adminUser.role === ROLES.STATE_MANAGER && Boolean(adminUser.can_approve_vendors)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Approve Business Listing (Admin/Super Admin only)
+ */
+export async function approveBusinessListing(listingId, adminUser) {
+  if (!verifyAdminApprovalPermission(adminUser)) {
+    return {
+      success: false,
+      status: 403,
+      error: 'unauthorized',
+      message: '403 Forbidden: Only authorized Super Admin or Admin with approval permission can approve listings.',
+    };
   }
 
-  let filtered = vendorList;
+  const listing = localBusinessListings.find((l) => String(l.id) === String(listingId));
+  if (!listing) {
+    return { success: false, error: 'not_found', message: 'Business listing not found.' };
+  }
+
+  const approvedAt = new Date().toISOString();
+  listing.listing_status = 'approved';
+  listing.is_approved = true;
+  listing.account_status = 'active';
+  listing.is_verified = true;
+  listing.approved_by = adminUser.id || adminUser.full_name;
+  listing.approved_at = approvedAt;
+  listing.rejection_reason = null;
+  listing.correction_notes = null;
+  listing.updated_at = approvedAt;
+
+  if (supabase) {
+    try {
+      await supabase.rpc('admin_approve_vendor_listing', {
+        p_vendor_id: listing.id,
+        p_admin_id: adminUser.id || 'usr-admin-001',
+      });
+    } catch (e) {
+      // Fallback direct update
+      try {
+        await supabase
+          .from('vendors')
+          .update({ is_verified: true })
+          .eq('id', listing.id);
+      } catch (err) {}
+    }
+  }
+
+  recordAdminAction(adminUser.id || 'usr-admin-001', 'APPROVE_VENDOR_LISTING', 'vendor', {
+    listingId: listing.id,
+    business_name: listing.business_name,
+    approved_at: approvedAt,
+  });
+
+  return { success: true, listing };
+}
+
+/**
+ * Reject Business Listing with Reason (Admin/Super Admin only)
+ */
+export async function rejectBusinessListing(listingId, adminUser, reason = '') {
+  if (!verifyAdminApprovalPermission(adminUser)) {
+    return {
+      success: false,
+      status: 403,
+      error: 'unauthorized',
+      message: '403 Forbidden: Only authorized Super Admin or Admin with approval permission can reject listings.',
+    };
+  }
+
+  const listing = localBusinessListings.find((l) => String(l.id) === String(listingId));
+  if (!listing) {
+    return { success: false, error: 'not_found', message: 'Business listing not found.' };
+  }
+
+  const finalReason = reason.trim() || 'Failed marketplace verification criteria.';
+  const rejectedAt = new Date().toISOString();
+
+  listing.listing_status = 'rejected';
+  listing.is_approved = false;
+  listing.account_status = 'inactive';
+  listing.rejection_reason = finalReason;
+  listing.rejected_at = rejectedAt;
+  listing.updated_at = rejectedAt;
+
+  if (supabase) {
+    try {
+      await supabase.rpc('admin_reject_vendor_listing', {
+        p_vendor_id: listing.id,
+        p_admin_id: adminUser.id || 'usr-admin-001',
+        p_reason: finalReason,
+      });
+    } catch (e) {
+      // Direct table fallback
+    }
+  }
+
+  recordAdminAction(adminUser.id || 'usr-admin-001', 'REJECT_VENDOR_LISTING', 'vendor', {
+    listingId: listing.id,
+    business_name: listing.business_name,
+    reason: finalReason,
+    rejected_at: rejectedAt,
+  });
+
+  return { success: true, listing };
+}
+
+/**
+ * Request Corrections for Business Listing (Admin/Super Admin only)
+ */
+export async function requestListingCorrections(listingId, adminUser, notes = '') {
+  if (!verifyAdminApprovalPermission(adminUser)) {
+    return {
+      success: false,
+      status: 403,
+      error: 'unauthorized',
+      message: '403 Forbidden: Only authorized Super Admin or Admin can request corrections.',
+    };
+  }
+
+  const listing = localBusinessListings.find((l) => String(l.id) === String(listingId));
+  if (!listing) {
+    return { success: false, error: 'not_found', message: 'Business listing not found.' };
+  }
+
+  const finalNotes = notes.trim() || 'Please provide clear address proof and updated photos.';
+  listing.listing_status = 'correction_requested';
+  listing.is_approved = false;
+  listing.correction_notes = finalNotes;
+  listing.updated_at = new Date().toISOString();
+
+  recordAdminAction(adminUser.id || 'usr-admin-001', 'REQUEST_LISTING_CORRECTION', 'vendor', {
+    listingId: listing.id,
+    business_name: listing.business_name,
+    notes: finalNotes,
+  });
+
+  return { success: true, listing };
+}
+
+/**
+ * Suspend Business Listing (Immediate Public Invisibility)
+ */
+export async function suspendBusinessListing(listingId, adminUser, reason = '') {
+  if (!verifyAdminApprovalPermission(adminUser)) {
+    return {
+      success: false,
+      status: 403,
+      error: 'unauthorized',
+      message: '403 Forbidden: Only authorized Super Admin or Admin can suspend listings.',
+    };
+  }
+
+  const listing = localBusinessListings.find((l) => String(l.id) === String(listingId));
+  if (!listing) {
+    return { success: false, error: 'not_found', message: 'Business listing not found.' };
+  }
+
+  const finalReason = reason.trim() || 'Suspended by admin due to marketplace compliance review.';
+  const suspendedAt = new Date().toISOString();
+
+  listing.listing_status = 'suspended';
+  listing.is_approved = false;
+  listing.account_status = 'suspended';
+  listing.rejection_reason = finalReason;
+  listing.suspended_at = suspendedAt;
+  listing.updated_at = suspendedAt;
+
+  if (supabase) {
+    try {
+      await supabase.rpc('admin_suspend_vendor_listing', {
+        p_vendor_id: listing.id,
+        p_admin_id: adminUser.id || 'usr-admin-001',
+        p_reason: finalReason,
+      });
+    } catch (e) {}
+  }
+
+  recordAdminAction(adminUser.id || 'usr-admin-001', 'SUSPEND_VENDOR_LISTING', 'vendor', {
+    listingId: listing.id,
+    business_name: listing.business_name,
+    reason: finalReason,
+    suspended_at: suspendedAt,
+  });
+
+  return { success: true, listing };
+}
+
+/**
+ * Reactivate Suspended Business Listing
+ */
+export async function reactivateBusinessListing(listingId, adminUser) {
+  if (!verifyAdminApprovalPermission(adminUser)) {
+    return {
+      success: false,
+      status: 403,
+      error: 'unauthorized',
+      message: '403 Forbidden: Only authorized Super Admin or Admin can reactivate listings.',
+    };
+  }
+
+  const listing = localBusinessListings.find((l) => String(l.id) === String(listingId));
+  if (!listing) {
+    return { success: false, error: 'not_found', message: 'Business listing not found.' };
+  }
+
+  const reactivatedAt = new Date().toISOString();
+  listing.listing_status = 'approved';
+  listing.is_approved = true;
+  listing.account_status = 'active';
+  listing.rejection_reason = null;
+  listing.updated_at = reactivatedAt;
+
+  if (supabase) {
+    try {
+      await supabase.rpc('admin_reactivate_vendor_listing', {
+        p_vendor_id: listing.id,
+        p_admin_id: adminUser.id || 'usr-admin-001',
+      });
+    } catch (e) {}
+  }
+
+  recordAdminAction(adminUser.id || 'usr-admin-001', 'REACTIVATE_VENDOR_LISTING', 'vendor', {
+    listingId: listing.id,
+    business_name: listing.business_name,
+    reactivated_at: reactivatedAt,
+  });
+
+  return { success: true, listing };
+}
+
+/**
+ * Vendor Resubmits Listing after Correction or Rejection
+ */
+export async function vendorResubmitListing(listingId, vendorPhone, updatedFields = {}) {
+  const cleanPhone = String(vendorPhone || '').replace(/\D/g, '').slice(-10);
+  const listing = localBusinessListings.find(
+    (l) => String(l.id) === String(listingId) && (l.phone === cleanPhone || l.owner_phone === cleanPhone)
+  );
+
+  if (!listing) {
+    return { success: false, error: 'not_found', message: 'Matching vendor listing not found.' };
+  }
+
+  // Update listing fields and reset to pending
+  if (updatedFields.business_name) listing.business_name = updatedFields.business_name.trim();
+  if (updatedFields.category) listing.category = updatedFields.category.trim();
+  if (updatedFields.price_range) listing.price_range = updatedFields.price_range.trim();
+  if (updatedFields.location) listing.location = updatedFields.location.trim();
+  if (updatedFields.description) listing.description = updatedFields.description.trim();
+  if (updatedFields.image_url) listing.image_url = updatedFields.image_url;
+
+  listing.listing_status = 'pending';
+  listing.is_approved = false;
+  listing.account_status = 'pending';
+  listing.correction_notes = null;
+  listing.updated_at = new Date().toISOString();
+
+  recordAdminAction(cleanPhone, 'VENDOR_RESUBMIT_LISTING', 'vendor', {
+    listingId: listing.id,
+    business_name: listing.business_name,
+  });
+
+  return {
+    success: true,
+    listing,
+    message: 'Your business listing is submitted and waiting for Admin approval.',
+  };
+}
+
+/**
+ * Security Gate: Block Vendors from approving their own listings
+ */
+export async function vendorAttemptSelfApproval(listingId, vendorUser) {
+  return {
+    success: false,
+    status: 403,
+    error: 'permission_denied',
+    message: '403 Forbidden: Vendors cannot approve their own listings or alter approval status.',
+  };
+}
+
+/**
+ * Look up vendor listing by phone number
+ */
+export function getVendorListingByPhone(phone) {
+  const cleanPhone = String(phone || '').replace(/\D/g, '').slice(-10);
+  return localBusinessListings.find((l) => l.phone === cleanPhone || l.owner_phone === cleanPhone) || null;
+}
+
+/**
+ * Fetch All Vendors (Preserving backward compatibility)
+ */
+export async function fetchAllVendors(query = '', categoryFilter = 'all', statusFilter = 'all') {
+  const allListings = await fetchBusinessListings(statusFilter);
+  let filtered = allListings;
+
   if (categoryFilter !== 'all') {
     filtered = filtered.filter((v) => v.category === categoryFilter);
-  }
-  if (statusFilter === 'verified') {
-    filtered = filtered.filter((v) => v.is_verified);
-  } else if (statusFilter === 'standard') {
-    filtered = filtered.filter((v) => !v.is_verified);
   }
 
   if (query.trim()) {
     const q = query.toLowerCase().trim();
     filtered = filtered.filter(
       (v) =>
-        v.business_name.toLowerCase().includes(q) ||
-        v.location.toLowerCase().includes(q) ||
+        (v.business_name && v.business_name.toLowerCase().includes(q)) ||
+        (v.location && v.location.toLowerCase().includes(q)) ||
         (v.phone && v.phone.includes(q))
     );
   }
@@ -306,15 +827,14 @@ export async function fetchAllVendors(query = '', categoryFilter = 'all', status
 }
 
 export async function toggleVendorVerificationStatus(vendorId, nextVerifiedStatus) {
+  const listing = localBusinessListings.find((l) => String(l.id) === String(vendorId));
+  if (listing) {
+    listing.is_verified = nextVerifiedStatus;
+  }
   if (supabase) {
     try {
-      await supabase
-        .from('vendors')
-        .update({ is_verified: nextVerifiedStatus })
-        .eq('id', vendorId);
-    } catch (e) {
-      // Fallback
-    }
+      await supabase.from('vendors').update({ is_verified: nextVerifiedStatus }).eq('id', vendorId);
+    } catch (e) {}
   }
   recordAdminAction('usr-admin-001', 'UPDATE_VENDOR_BADGE', 'vendor', {
     vendorId,

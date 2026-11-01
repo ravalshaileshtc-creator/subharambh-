@@ -10,6 +10,7 @@
 // ==============================================================================
 
 import { PAN_INDIA_CITIES } from '../constants/panIndiaLocations.js';
+import { isPubliclyVisibleVendor } from './marketplaceService.js';
 
 export const DEFAULT_CUSTOMER_LOCATION = {
   city: 'Godhra',
@@ -233,12 +234,8 @@ export function searchNearbyVendors({
   const custLat = customerLocation.latitude || DEFAULT_CUSTOMER_LOCATION.latitude;
   const custLng = customerLocation.longitude || DEFAULT_CUSTOMER_LOCATION.longitude;
 
-  // 1. Filter out unapproved, rejected, or suspended vendors
-  const eligibleVendors = vendors.filter((v) => {
-    if (v.vendor_status && v.vendor_status !== 'approved') return false;
-    if (v.status && v.status === 'suspended') return false;
-    return true;
-  });
+  // 1. Filter out unapproved, pending, rejected, or suspended vendors (Strict Admin Approval)
+  const eligibleVendors = vendors.filter((v) => isPubliclyVisibleVendor(v));
 
   // 2. Annotate each vendor with accurate geographical distance and service status
   const annotated = eligibleVendors.map((vendor) => {

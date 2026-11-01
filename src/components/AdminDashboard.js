@@ -42,6 +42,12 @@ import {
   toggleVendorVerificationStatus,
   fetchVendorApplications,
   reviewApplicationDecision,
+  fetchBusinessListings,
+  approveBusinessListing,
+  rejectBusinessListing,
+  requestListingCorrections,
+  suspendBusinessListing,
+  reactivateBusinessListing,
   getVendorKycRecords,
   updateVendorKycStatus,
   getAllVendorPackagesList,
@@ -142,6 +148,8 @@ export default function AdminDashboard({
   const [metrics, setMetrics] = useState({});
   const [customers, setCustomers] = useState([]);
   const [vendorList, setVendorList] = useState([]);
+  const [businessListings, setBusinessListings] = useState([]);
+  const [listingFilter, setListingFilter] = useState('all'); // 'all' | 'pending' | 'approved' | 'rejected' | 'suspended' | 'correction_requested'
   const [applications, setApplications] = useState([]);
   const [kycDocs, setKycDocs] = useState([]);
   const [packages, setPackages] = useState([]);
@@ -190,6 +198,7 @@ export default function AdminDashboard({
         liveQuo,
         liveAudits,
         liveHealth,
+        liveListings,
       ] = await Promise.all([
         getLiveDashboardMetrics(),
         fetchAllCustomers(),
@@ -200,12 +209,14 @@ export default function AdminDashboard({
         fetchAllQuotations(),
         fetchSystemAuditLogs(),
         runHealthCheck(),
+        fetchBusinessListings(),
       ]);
 
       setMetrics(liveMetrics);
       setCustomers(liveCust);
       setVendorList(liveVendors);
       setApplications(liveApps);
+      setBusinessListings(liveListings || []);
       setBookingsList(liveBookings);
       setEnquiriesList(liveEnq);
       setQuotationsList(liveQuo);
@@ -278,6 +289,78 @@ export default function AdminDashboard({
           ? `Vendor "${app.business_name}" is now an Approved Partner. Profile activated.`
           : `Application for "${app.business_name}" has been declined.`
       );
+    }
+  };
+
+  const handleApproveListing = async (item) => {
+    const res = await approveBusinessListing(item.id, user);
+    if (res.success) {
+      setBusinessListings((prev) =>
+        prev.map((l) => (l.id === item.id ? { ...l, ...res.listing } : l))
+      );
+      setVendorList((prev) =>
+        prev.map((v) => (v.id === item.id ? { ...v, ...res.listing } : v))
+      );
+      Alert.alert('Listing Approved ✅', `"${item.business_name}" is now approved and live in the public customer marketplace!`);
+    } else {
+      Alert.alert('Approval Error', res.message || 'Could not approve listing.');
+    }
+  };
+
+  const handleRejectListing = async (item) => {
+    const reason = 'Failed business documentation and contact verification standards.';
+    const res = await rejectBusinessListing(item.id, user, reason);
+    if (res.success) {
+      setBusinessListings((prev) =>
+        prev.map((l) => (l.id === item.id ? { ...l, ...res.listing } : l))
+      );
+      Alert.alert('Listing Rejected ❌', `"${item.business_name}" has been rejected. It will remain hidden from customers.`);
+    } else {
+      Alert.alert('Action Error', res.message || 'Could not reject listing.');
+    }
+  };
+
+  const handleRequestCorrections = async (item) => {
+    const notes = 'Please upload a clear business storefront photo and valid local trade address proof.';
+    const res = await requestListingCorrections(item.id, user, notes);
+    if (res.success) {
+      setBusinessListings((prev) =>
+        prev.map((l) => (l.id === item.id ? { ...l, ...res.listing } : l))
+      );
+      Alert.alert('Corrections Requested 📝', `Correction request sent for "${item.business_name}". Vendor can edit and resubmit.`);
+    } else {
+      Alert.alert('Action Error', res.message || 'Could not request corrections.');
+    }
+  };
+
+  const handleSuspendListing = async (item) => {
+    const reason = 'Listing suspended by administration pending compliance audit.';
+    const res = await suspendBusinessListing(item.id, user, reason);
+    if (res.success) {
+      setBusinessListings((prev) =>
+        prev.map((l) => (l.id === item.id ? { ...l, ...res.listing } : l))
+      );
+      setVendorList((prev) =>
+        prev.map((v) => (v.id === item.id ? { ...v, ...res.listing } : v))
+      );
+      Alert.alert('Listing Suspended ⏸️', `"${item.business_name}" is suspended and immediately removed from all public customer feeds.`);
+    } else {
+      Alert.alert('Action Error', res.message || 'Could not suspend listing.');
+    }
+  };
+
+  const handleReactivateListing = async (item) => {
+    const res = await reactivateBusinessListing(item.id, user);
+    if (res.success) {
+      setBusinessListings((prev) =>
+        prev.map((l) => (l.id === item.id ? { ...l, ...res.listing } : l))
+      );
+      setVendorList((prev) =>
+        prev.map((v) => (v.id === item.id ? { ...v, ...res.listing } : v))
+      );
+      Alert.alert('Listing Reactivated 🔄', `"${item.business_name}" is now reactivated and visible in the public marketplace!`);
+    } else {
+      Alert.alert('Action Error', res.message || 'Could not reactivate listing.');
     }
   };
 
@@ -630,62 +713,172 @@ export default function AdminDashboard({
         )}
 
         {/* ================================================================== */}
-        {/* MODULE 4: VENDOR APPLICATIONS & APPROVALS */}
+        {/* MODULE 4: VENDOR APPLICATIONS & STRICT ADMIN APPROVAL WORKFLOW */}
         {/* ================================================================== */}
         {subTab === 'applications' && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Vendor Applications & Approvals ({applications.length})</Text>
-            <Text style={styles.sectionSub}>Review and approve new wedding service partners.</Text>
+            <Text style={styles.sectionTitle}>
+              Business Listing Approvals & Applications ({businessListings.length})
+            </Text>
+            <Text style={styles.sectionSub}>
+              Review, approve, reject, or request corrections before businesses appear to customers.
+            </Text>
 
-            {applications.map((app) => (
-              <View key={app.id} style={styles.cardItem}>
-                <View style={styles.cardHead}>
-                  <Text style={styles.cardTitle}>{app.business_name}</Text>
-                  <View
-                    style={
-                      app.status === 'approved'
-                        ? styles.statusPillActive
-                        : app.status === 'pending'
-                        ? styles.statusPillPending
-                        : styles.statusPillRejected
-                    }
+            {/* Status Filter Bar */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {[
+                  { key: 'all', label: `All (${businessListings.length})` },
+                  { key: 'pending', label: `⏳ Pending (${businessListings.filter((l) => l.listing_status === 'pending').length})` },
+                  { key: 'approved', label: `✅ Approved (${businessListings.filter((l) => l.listing_status === 'approved' && l.is_approved).length})` },
+                  { key: 'rejected', label: `❌ Rejected (${businessListings.filter((l) => l.listing_status === 'rejected').length})` },
+                  { key: 'suspended', label: `⏸️ Suspended (${businessListings.filter((l) => l.listing_status === 'suspended' || l.account_status === 'suspended').length})` },
+                  { key: 'correction_requested', label: `📝 Corrections (${businessListings.filter((l) => l.listing_status === 'correction_requested').length})` },
+                ].map((tab) => (
+                  <TouchableOpacity
+                    key={tab.key}
+                    style={[
+                      styles.smallActionBtn,
+                      {
+                        backgroundColor: listingFilter === tab.key ? '#b45309' : '#1e293b',
+                        paddingHorizontal: 12,
+                        paddingVertical: 7,
+                        borderRadius: 8,
+                      },
+                    ]}
+                    onPress={() => setListingFilter(tab.key)}
                   >
-                    <Text
+                    <Text style={[styles.smallActionBtnText, { fontWeight: listingFilter === tab.key ? '800' : '600' }]}>
+                      {tab.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            {/* Listing Cards */}
+            {businessListings
+              .filter((l) => {
+                if (listingFilter === 'all') return true;
+                if (listingFilter === 'approved') return l.listing_status === 'approved' && l.is_approved;
+                if (listingFilter === 'suspended') return l.listing_status === 'suspended' || l.account_status === 'suspended';
+                return l.listing_status === listingFilter;
+              })
+              .map((listing) => (
+                <View key={listing.id} style={styles.cardItem}>
+                  <View style={styles.cardHead}>
+                    <Text style={styles.cardTitle}>{listing.business_name}</Text>
+                    <View
                       style={
-                        app.status === 'approved'
-                          ? styles.statusPillActiveText
-                          : app.status === 'pending'
-                          ? styles.statusPillPendingText
-                          : styles.statusPillRejectedText
+                        listing.listing_status === 'approved' && listing.is_approved
+                          ? styles.statusPillActive
+                          : listing.listing_status === 'pending'
+                          ? styles.statusPillPending
+                          : listing.listing_status === 'correction_requested'
+                          ? [styles.statusPillPending, { backgroundColor: '#1e3a8a' }]
+                          : styles.statusPillRejected
                       }
                     >
-                      {app.status.toUpperCase()}
+                      <Text
+                        style={
+                          listing.listing_status === 'approved' && listing.is_approved
+                            ? styles.statusPillActiveText
+                            : listing.listing_status === 'pending'
+                            ? styles.statusPillPendingText
+                            : listing.listing_status === 'correction_requested'
+                            ? [styles.statusPillPendingText, { color: '#93c5fd' }]
+                            : styles.statusPillRejectedText
+                        }
+                      >
+                        {String(listing.listing_status || 'pending').toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.cardMeta}>
+                    👤 Owner: {listing.owner_name || listing.business_name} | 📱 +91 {listing.owner_phone || listing.phone}
+                  </Text>
+                  <Text style={styles.cardMeta}>🎪 Category: {listing.category?.toUpperCase()}</Text>
+                  <Text style={styles.cardMeta}>📍 Location: {listing.location}</Text>
+                  <Text style={styles.cardMeta}>💰 Price Range: {listing.price_range}</Text>
+                  {listing.description ? (
+                    <Text style={[styles.cardMeta, { fontStyle: 'italic' }]}>"{listing.description}"</Text>
+                  ) : null}
+
+                  {/* Rejection / Correction Reason Displays */}
+                  {listing.rejection_reason && (
+                    <Text style={[styles.cardMeta, { color: '#fca5a5', fontWeight: '700' }]}>
+                      ⚠️ Rejection Reason: {listing.rejection_reason}
                     </Text>
+                  )}
+                  {listing.correction_notes && (
+                    <Text style={[styles.cardMeta, { color: '#93c5fd', fontWeight: '700' }]}>
+                      📝 Correction Notes: {listing.correction_notes}
+                    </Text>
+                  )}
+                  {listing.approved_at && (
+                    <Text style={styles.cardTime}>
+                      Approved on: {new Date(listing.approved_at).toLocaleString()} by {listing.approved_by || 'Admin'}
+                    </Text>
+                  )}
+
+                  {/* Admin Approval Control Buttons */}
+                  <View style={[styles.actionBtnRow, { flexWrap: 'wrap', gap: 8, marginTop: 10 }]}>
+                    {listing.listing_status !== 'approved' && (
+                      <TouchableOpacity
+                        style={[styles.smallActionBtn, { backgroundColor: '#059669' }]}
+                        onPress={() => handleApproveListing(listing)}
+                      >
+                        <Text style={styles.smallActionBtnText}>Approve Listing ✅</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {listing.listing_status === 'pending' && (
+                      <>
+                        <TouchableOpacity
+                          style={[styles.smallActionBtn, { backgroundColor: '#dc2626' }]}
+                          onPress={() => handleRejectListing(listing)}
+                        >
+                          <Text style={styles.smallActionBtnText}>Reject ❌</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.smallActionBtn, { backgroundColor: '#2563eb' }]}
+                          onPress={() => handleRequestCorrections(listing)}
+                        >
+                          <Text style={styles.smallActionBtnText}>Request Corrections 📝</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+
+                    {listing.listing_status === 'approved' && (
+                      <TouchableOpacity
+                        style={[styles.smallActionBtn, { backgroundColor: '#d97706' }]}
+                        onPress={() => handleSuspendListing(listing)}
+                      >
+                        <Text style={styles.smallActionBtnText}>Suspend Listing ⏸️</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {listing.listing_status === 'suspended' && (
+                      <TouchableOpacity
+                        style={[styles.smallActionBtn, { backgroundColor: '#059669' }]}
+                        onPress={() => handleReactivateListing(listing)}
+                      >
+                        <Text style={styles.smallActionBtnText}>Reactivate Listing 🔄</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {listing.listing_status === 'rejected' && (
+                      <TouchableOpacity
+                        style={[styles.smallActionBtn, { backgroundColor: '#059669' }]}
+                        onPress={() => handleApproveListing(listing)}
+                      >
+                        <Text style={styles.smallActionBtnText}>Re-Approve ✅</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </View>
-                <Text style={styles.cardMeta}>👤 Owner: {app.owner_name} | 📱 +91 {app.phone}</Text>
-                <Text style={styles.cardMeta}>🎪 Category: {app.category?.toUpperCase()}</Text>
-                <Text style={styles.cardMeta}>📍 Address: {app.address}, {app.city}, {app.district}</Text>
-                <Text style={styles.cardMeta}>⏳ Industry Experience: {app.experience_years} Years</Text>
-
-                {app.status === 'pending' && (
-                  <View style={styles.actionBtnRow}>
-                    <TouchableOpacity
-                      style={[styles.smallActionBtn, { backgroundColor: '#059669' }]}
-                      onPress={() => handleApplicationReview(app, 'approved')}
-                    >
-                      <Text style={styles.smallActionBtnText}>Approve Partner ✅</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.smallActionBtn, { backgroundColor: '#dc2626' }]}
-                      onPress={() => handleApplicationReview(app, 'rejected')}
-                    >
-                      <Text style={styles.smallActionBtnText}>Reject ❌</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            ))}
+              ))}
           </View>
         )}
 

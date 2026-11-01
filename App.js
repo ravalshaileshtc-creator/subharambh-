@@ -31,7 +31,8 @@ import VendorAvailabilityModal from './src/components/VendorAvailabilityModal';
 import Get5QuotesModal from './src/components/Get5QuotesModal';
 import AdminPanelModal from './src/components/AdminPanelModal';
 import NearbyLocationBar from './src/components/NearbyLocationBar';
-import { smartMatchVendors } from './src/services/marketplaceService';
+import { smartMatchVendors, isPubliclyVisibleVendor } from './src/services/marketplaceService';
+import { submitBusinessListing, getVendorListingByPhone } from './src/services/superAdminService';
 import {
   DEFAULT_CUSTOMER_LOCATION,
   searchNearbyVendors,
@@ -582,7 +583,10 @@ export const ENRICHED_MARKETPLACE_VENDORS = INITIAL_GODHRA_VENDORS.map((v) => {
     service_radius_km: 50,
     service_area_cities: ['Godhra', 'Halol', 'Kalol', 'Shehra', 'Lunawada'],
     service_area_pincodes: ['389001', '389340', '389330', '389230', '389232'],
-    vendor_status: 'approved',
+    vendor_status: v.vendor_status || 'approved',
+    listing_status: v.listing_status || 'approved',
+    is_approved: v.is_approved !== undefined ? v.is_approved : true,
+    account_status: v.account_status || 'active',
   };
 }).concat([
   // Nearby Panchmahal Vendors (Halol & Kalol)
@@ -607,7 +611,10 @@ export const ENRICHED_MARKETPLACE_VENDORS = INITIAL_GODHRA_VENDORS.map((v) => {
     service_radius_km: 45,
     service_area_cities: ['Halol', 'Kalol', 'Godhra', 'Vadodara'],
     service_area_pincodes: ['389350', '389340', '389001'],
-    vendor_status: 'approved',
+    vendor_status: v.vendor_status || 'approved',
+    listing_status: v.listing_status || 'approved',
+    is_approved: v.is_approved !== undefined ? v.is_approved : true,
+    account_status: v.account_status || 'active',
   },
   {
     id: 30,
@@ -630,7 +637,10 @@ export const ENRICHED_MARKETPLACE_VENDORS = INITIAL_GODHRA_VENDORS.map((v) => {
     service_radius_km: 40,
     service_area_cities: ['Kalol', 'Halol', 'Godhra'],
     service_area_pincodes: ['389330', '389350', '389001'],
-    vendor_status: 'approved',
+    vendor_status: v.vendor_status || 'approved',
+    listing_status: v.listing_status || 'approved',
+    is_approved: v.is_approved !== undefined ? v.is_approved : true,
+    account_status: v.account_status || 'active',
   },
 
   // Regional Hub Vendor (Vadodara ~74 km)
@@ -655,7 +665,10 @@ export const ENRICHED_MARKETPLACE_VENDORS = INITIAL_GODHRA_VENDORS.map((v) => {
     service_radius_km: 85,
     service_area_cities: ['Vadodara', 'Anand', 'Halol', 'Godhra'],
     service_area_pincodes: ['390001', '388001', '389350', '389001'],
-    vendor_status: 'approved',
+    vendor_status: v.vendor_status || 'approved',
+    listing_status: v.listing_status || 'approved',
+    is_approved: v.is_approved !== undefined ? v.is_approved : true,
+    account_status: v.account_status || 'active',
   },
 
   // Distant Gujarat Metro Vendor (Ahmedabad ~118 km)
@@ -680,7 +693,10 @@ export const ENRICHED_MARKETPLACE_VENDORS = INITIAL_GODHRA_VENDORS.map((v) => {
     service_radius_km: 60,
     service_area_cities: ['Ahmedabad', 'Gandhinagar'],
     service_area_pincodes: ['380001', '382010'],
-    vendor_status: 'approved',
+    vendor_status: v.vendor_status || 'approved',
+    listing_status: v.listing_status || 'approved',
+    is_approved: v.is_approved !== undefined ? v.is_approved : true,
+    account_status: v.account_status || 'active',
   },
 
   // Distant Royal Destination Vendor (Jaipur, Rajasthan ~540 km)
@@ -705,7 +721,10 @@ export const ENRICHED_MARKETPLACE_VENDORS = INITIAL_GODHRA_VENDORS.map((v) => {
     service_radius_km: 120,
     service_area_cities: ['Jaipur', 'Udaipur', 'Jodhpur'],
     service_area_pincodes: ['302001', '313001', '342001'],
-    vendor_status: 'approved',
+    vendor_status: v.vendor_status || 'approved',
+    listing_status: v.listing_status || 'approved',
+    is_approved: v.is_approved !== undefined ? v.is_approved : true,
+    account_status: v.account_status || 'active',
   },
 
   // Unapproved Vendor Sample (Must NOT appear in public searches)
@@ -729,6 +748,9 @@ export const ENRICHED_MARKETPLACE_VENDORS = INITIAL_GODHRA_VENDORS.map((v) => {
     service_radius_km: 25,
     service_area_cities: ['Godhra'],
     vendor_status: 'pending',
+    listing_status: 'pending',
+    is_approved: false,
+    account_status: 'pending',
   },
 ]);
 
@@ -738,7 +760,7 @@ export const ENRICHED_MARKETPLACE_VENDORS = INITIAL_GODHRA_VENDORS.map((v) => {
 function MainApp() {
   const { language, setLanguage, t, fontFamily } = useTranslation();
   const [langModalVisible, setLangModalVisible] = useState(false);
-  const [vendors, setVendors] = useState(ENRICHED_MARKETPLACE_VENDORS);
+  const [vendors, setVendors] = useState(() => ENRICHED_MARKETPLACE_VENDORS.filter(isPubliclyVisibleVendor));
   const [customerLocation, setCustomerLocation] = useState(DEFAULT_CUSTOMER_LOCATION);
   const [searchRadius, setSearchRadius] = useState(25); // Default 25 km radius
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -1260,20 +1282,42 @@ function MainApp() {
 
     try {
       setLoading(true);
-      let query = supabase.from('vendors').select('*').order('id', { ascending: false });
+      let query = supabase.from('vendors').select('*');
+
+      // STRICT ADMIN APPROVAL: Public customer app must only query approved & active listings
+      try {
+        query = query.eq('listing_status', 'approved').eq('is_approved', true).eq('account_status', 'active');
+      } catch (e) {
+        // Fallback for legacy columns
+      }
+
+      query = query.order('id', { ascending: false });
 
       if (selectedCategory !== 'all') {
         query = query.eq('category', selectedCategory);
       }
 
-      const { data, error } = await query;
+      let { data, error } = await query;
+
+      // If remote Supabase table does not have listing_status column yet, fallback to select *
+      if (error && error.message && error.message.includes('column')) {
+        let fallbackQuery = supabase.from('vendors').select('*').order('id', { ascending: false });
+        if (selectedCategory !== 'all') {
+          fallbackQuery = fallbackQuery.eq('category', selectedCategory);
+        }
+        const fallbackRes = await fallbackQuery;
+        data = fallbackRes.data;
+        error = fallbackRes.error;
+      }
 
       if (error) {
         console.warn('Supabase fetch failed, falling back to local dataset:', error.message);
         setIsLiveDatabase(false);
         filterLocalVendors(selectedCategory);
       } else if (data && data.length > 0) {
-        const enriched = data.map((item) => {
+        // Enforce strict visibility filter
+        const approvedOnly = data.filter(isPubliclyVisibleVendor);
+        const enriched = approvedOnly.map((item) => {
           const localMatch = INITIAL_GODHRA_VENDORS.find(
             (v) => v.business_name.toLowerCase() === (item.business_name || '').toLowerCase()
           );
@@ -1299,10 +1343,11 @@ function MainApp() {
   }
 
   function filterLocalVendors(catId) {
+    const visibleVendors = ENRICHED_MARKETPLACE_VENDORS.filter(isPubliclyVisibleVendor);
     if (catId === 'all') {
-      setVendors(INITIAL_GODHRA_VENDORS);
+      setVendors(visibleVendors);
     } else {
-      setVendors(INITIAL_GODHRA_VENDORS.filter((v) => v.category === catId));
+      setVendors(visibleVendors.filter((v) => v.category === catId));
     }
   }
 
@@ -1419,49 +1464,29 @@ function MainApp() {
 
     setSubmittingBiz(true);
 
-    const newVendorPayload = {
-      business_name: cleanName,
-      category: bizCategory,
-      location: cleanLoc,
-      price_range: cleanPrice,
-      phone: cleanPhone,
-      description: cleanDesc || 'Local verified wedding & event service provider in Panchmahal.',
-      rating: 5.0,
-      is_verified: true,
-      image_url: cleanImg,
-      instagram_handle: cleanInsta || null,
-    };
-
     try {
-      if (supabase && isLiveDatabase) {
-        let { error } = await supabase.from('vendors').insert([newVendorPayload]);
-        if (error && error.message && error.message.includes('column')) {
-          const fallbackPayload = { ...newVendorPayload };
-          delete fallbackPayload.image_url;
-          delete fallbackPayload.instagram_handle;
-          const retryRes = await supabase.from('vendors').insert([fallbackPayload]);
-          if (retryRes.error) throw retryRes.error;
-        } else if (error) {
-          throw error;
-        }
+      const res = await submitBusinessListing({
+        business_name: cleanName,
+        category: bizCategory,
+        location: cleanLoc,
+        price_range: cleanPrice,
+        phone: cleanPhone,
+        description: cleanDesc || 'Local verified wedding & event service provider in Panchmahal.',
+        image_url: cleanImg,
+        instagram_handle: cleanInsta || null,
+        owner_name: cleanName,
+      });
 
-        Alert.alert(
-          '🎉 Congratulations!',
-          `"${cleanName}" has been successfully registered and listed on Panchmahal Events Hub!`
-        );
-        fetchVendors();
-      } else {
-        const mockNewVendor = {
-          id: Date.now(),
-          ...newVendorPayload,
-        };
-        setVendors((prev) => [mockNewVendor, ...prev]);
-        INITIAL_GODHRA_VENDORS.unshift(mockNewVendor);
-        Alert.alert(
-          '🎉 Business Added!',
-          `"${cleanName}" is now active and listed in the ${bizCategory.toUpperCase()} directory!`
-        );
+      if (!res.success) {
+        Alert.alert('Registration Notice', res.message || 'Could not submit business listing.');
+        return;
       }
+
+      // STRICT ADMIN APPROVAL: Listing remains pending and is NOT injected into public customer search
+      Alert.alert(
+        '⏳ Submitted for Admin Approval',
+        'Your business listing is submitted and waiting for Admin approval. Our administrative team will verify your business details before activating it on the public directory.'
+      );
 
       setBizName('');
       setBizPhone('');
@@ -1470,9 +1495,8 @@ function MainApp() {
       setBizInstagram('');
       setBizImage('');
       setBizModalVisible(false);
-      setSelectedCategory(bizCategory);
     } catch (error) {
-      Alert.alert('Registration Failed', error.message || 'Could not save vendor.');
+      Alert.alert('Registration Failed', error.message || 'Could not submit vendor application.');
     } finally {
       setSubmittingBiz(false);
     }

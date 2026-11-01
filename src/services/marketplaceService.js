@@ -3,6 +3,38 @@
 // Core Architecture: Smart Matching, 5-Quotes Routing, Availability & Privacy
 // ==============================================================================
 
+/**
+ * STRICT PUBLIC VISIBILITY GATEKEEPER
+ * Only businesses where:
+ *   listing_status = "approved" AND is_approved = true AND account_status = "active"
+ * are permitted to appear in the public customer application.
+ * Unapproved, pending, rejected, or suspended listings are strictly blocked.
+ */
+export function isPubliclyVisibleVendor(vendor) {
+  if (!vendor) return false;
+
+  // 1. Explicit negative checks
+  if (vendor.listing_status && vendor.listing_status !== 'approved') return false;
+  if (vendor.is_approved === false) return false;
+  if (vendor.account_status && vendor.account_status !== 'active') return false;
+  if (vendor.vendor_status && vendor.vendor_status !== 'approved') return false;
+  if (vendor.status === 'suspended' || vendor.status === 'rejected' || vendor.status === 'pending' || vendor.status === 'correction_requested') {
+    return false;
+  }
+
+  // 2. If new approval flags exist on the object, strictly require all 3
+  if (vendor.listing_status !== undefined || vendor.is_approved !== undefined || vendor.account_status !== undefined) {
+    return (
+      vendor.listing_status === 'approved' &&
+      vendor.is_approved === true &&
+      (vendor.account_status === 'active' || !vendor.account_status)
+    );
+  }
+
+  // 3. Legacy seed vendor fallback: must be verified and not pending/rejected/suspended
+  return vendor.is_verified === true && vendor.vendor_status !== 'pending';
+}
+
 // Initial mock availability for Godhra wedding dates (2026-2027 season)
 // Dates format: YYYY-MM-DD
 const INITIAL_AVAILABILITY = {
@@ -156,6 +188,11 @@ export function smartMatchVendors(vendors, criteria) {
 
   return vendors
     .filter((vendor) => {
+      // 0. Strict Admin Approval Check (pending/rejected/suspended vendors NEVER appear in search)
+      if (!isPubliclyVisibleVendor(vendor)) {
+        return false;
+      }
+
       // 1. Category Filter
       if (category !== 'all' && vendor.category !== category) {
         return false;
@@ -281,12 +318,34 @@ export function updateVendorDateAvailability(vendorId, dateStr, newStatus, note 
 // 3. GET 5 QUOTES WORKFLOW & ROUTING ENGINE
 // ==============================================================================
 export function createCustomerEnquiry(payload, allVendors = []) {
+  // 0. Strict Admin Approval Check for direct vendor enquiries
+  if (payload.vendor && !isPubliclyVisibleVendor(payload.vendor)) {
+    return {
+      success: false,
+      error: 'vendor_not_approved',
+      message: 'This vendor is currently pending admin approval and cannot receive public enquiries or bookings.',
+    };
+  }
+  if (payload.vendor_id) {
+    const target = allVendors.find((v) => String(v.id) === String(payload.vendor_id));
+    if (target && !isPubliclyVisibleVendor(target)) {
+      return {
+        success: false,
+        error: 'vendor_not_approved',
+        message: 'This vendor is currently pending admin approval and cannot receive public enquiries or bookings.',
+      };
+    }
+  }
+
   const enquiryCode = `ENQ-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
   // Find up to 5 best matching verified vendors in Panchmahal
   const reqServices = payload.services || ['mandap'];
   const matched = allVendors
     .filter((v) => {
+      // 0. Strict Admin Approval Check (pending/unapproved vendors cannot receive enquiries)
+      if (!isPubliclyVisibleVendor(v)) return false;
+
       // Must match at least one required category or be in same location
       const categoryMatch = reqServices.includes(v.category) || reqServices.includes('all');
       if (!categoryMatch) return false;

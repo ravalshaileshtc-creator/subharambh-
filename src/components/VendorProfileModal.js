@@ -16,6 +16,7 @@ import {
   getVendorPortfolio,
   addVendorPortfolioPhoto,
   deleteVendorPortfolioPhoto,
+  isPubliclyVisibleVendor,
 } from '../services/marketplaceService';
 
 export default function VendorProfileModal({
@@ -39,6 +40,7 @@ export default function VendorProfileModal({
   const [uploadProgress, setUploadProgress] = useState(null);
 
   if (!visible || !vendor) return null;
+  if (!isPubliclyVisibleVendor(vendor)) return null;
 
   const portfolio = getVendorPortfolio(vendor);
 
