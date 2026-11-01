@@ -28,6 +28,9 @@ import {
   getAllPlatformBills,
   getBillsFinancialSummary,
   generateWhatsAppInvoiceShareText,
+  generateWhatsAppReceiptShareText,
+  generateA4InvoiceHTML,
+  generateA4ReceiptHTML,
 } from './src/services/billBookService.js';
 import { ROLES, VENDOR_STATUS } from './src/services/rbacService.js';
 
@@ -367,6 +370,71 @@ async function main() {
     assert.ok(dupRes.bill.customer_name.includes('Copy'), 'Customer name must indicate copy');
     assert.strictEqual(dupRes.bill.advance_paid, 0.00, 'Duplicate bill starts with zero advance');
     assert.strictEqual(dupRes.bill.payment_status, 'unpaid', 'Duplicate bill starts as unpaid');
+  });
+
+  // ----------------------------------------------------------------------------
+  // CASE 11: Professional Blue (#1976D2) + White + Golden (#D4AF37) A4 Invoice HTML
+  // ----------------------------------------------------------------------------
+  await runAsyncTest('Case 11: Professional Blue + White + Golden A4 Invoice HTML layout with signatures', async () => {
+    const html = generateA4InvoiceHTML(testBill);
+    assert.ok(html.length > 500, 'A4 HTML must be substantial');
+    assert.ok(html.includes('#1976D2'), 'Must include Professional Blue (#1976D2)');
+    assert.ok(html.includes('#D4AF37'), 'Must include Premium Golden (#D4AF37)');
+    assert.ok(html.includes('#ffffff'), 'Must include Pure White (#ffffff)');
+    assert.ok(html.includes('TAX INVOICE'), 'Must have TAX INVOICE title');
+    assert.ok(html.includes('SHUBH CELEBRATIONS'), 'Must have Shubh Celebrations branding');
+    assert.ok(html.includes(testBill.bill_number), 'Must contain unique bill number');
+    assert.ok(html.includes(testBill.vendor_name), 'Must contain vendor name');
+    assert.ok(html.includes(testBill.customer_name), 'Must contain customer name');
+    assert.ok(html.includes('Client Signature'), 'Must contain Client Signature area');
+    assert.ok(html.includes('Authorized Signatory'), 'Must contain Authorized Signatory area');
+    assert.ok(html.includes('size: A4 portrait'), 'Must contain A4 portrait print rules');
+  });
+
+  // ----------------------------------------------------------------------------
+  // CASE 12: Payment Receipt Generation (#RCP-), A4 Receipt Slip & WhatsApp Share
+  // ----------------------------------------------------------------------------
+  await runAsyncTest('Case 12: Payment Receipt Generation (#RCP-), A4 Receipt Slip & WhatsApp Share', async () => {
+    // Create fresh bill with outstanding balance for receipt testing
+    const freshBillRes = await createVendorBill(
+      {
+        customer_name: 'Anilbhai Shah',
+        customer_phone: '9898012345',
+        event_name: 'Reception & Music Night',
+        event_date: '2026-12-25',
+        items: [{ id: 1, description: 'Sound & Orchestra Setup', quantity: 1, rate: 25000 }],
+        advance_paid: 5000,
+      },
+      approvedVendorUser
+    );
+    assert.strictEqual(freshBillRes.success, true);
+    const receiptBill = freshBillRes.bill;
+
+    // Record a partial payment of ₹5,000 on remaining balance
+    const payRes = await recordBillPayment(
+      receiptBill.id,
+      { amount: 5000, method: 'UPI', reference: 'UPI/TEST/9988', notes: 'Advance receipt test' },
+      approvedVendorUser
+    );
+    assert.strictEqual(payRes.success, true);
+    assert.ok(payRes.receipt_number.startsWith('RCP-'), 'Must generate receipt number with RCP- prefix');
+
+    // Test A4 Receipt HTML
+    const receiptHtml = generateA4ReceiptHTML(payRes.bill, payRes.payment);
+    assert.ok(receiptHtml.includes('#1976D2'), 'Receipt must use Professional Blue');
+    assert.ok(receiptHtml.includes('#D4AF37'), 'Receipt must use Golden accent');
+    assert.ok(receiptHtml.includes('OFFICIAL PAYMENT RECEIPT'), 'Receipt title must be present');
+    assert.ok(receiptHtml.includes(payRes.receipt_number), 'Receipt number must be embedded');
+    assert.ok(receiptHtml.includes('5,000'), 'Payment amount must be displayed');
+    assert.ok(receiptHtml.includes('CLIENT ACKNOWLEDGMENT'), 'Must include Client signature area');
+    assert.ok(receiptHtml.includes('AUTHORIZED SIGNATURE'), 'Must include Vendor signature area');
+
+    // Test WhatsApp Receipt share text
+    const waText = generateWhatsAppReceiptShareText(payRes.bill, payRes.payment);
+    const decodedWa = decodeURIComponent(waText);
+    assert.ok(decodedWa.includes('OFFICIAL PAYMENT RECEIPT'));
+    assert.ok(decodedWa.includes(payRes.receipt_number));
+    assert.ok(decodedWa.includes(payRes.bill.customer_name));
   });
 
   console.log('\n=================================================================');

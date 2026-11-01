@@ -35,6 +35,9 @@ import {
   getAllPlatformBills,
   getBillsFinancialSummary,
   generateWhatsAppInvoiceShareText,
+  generateWhatsAppReceiptShareText,
+  generateA4InvoiceHTML,
+  generateA4ReceiptHTML,
 } from '../services/billBookService.js';
 import { useTranslation } from '../localization/i18n.js';
 
@@ -65,8 +68,10 @@ export default function BillBookView({
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [invoicePreviewModalVisible, setInvoicePreviewModalVisible] = useState(false);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [receiptModalVisible, setReceiptModalVisible] = useState(false);
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
   const [selectedBill, setSelectedBill] = useState(null);
+  const [selectedReceiptPayment, setSelectedReceiptPayment] = useState(null);
   const [editingBillId, setEditingBillId] = useState(null);
 
   // Form State for Create/Edit Bill
@@ -308,12 +313,57 @@ export default function BillBookView({
     );
 
     if (res.success) {
-      Alert.alert('Receipt Issued', res.message);
       setPaymentModalVisible(false);
       setSelectedBill(res.bill);
+      setSelectedReceiptPayment(res.payment);
       setRefreshTrigger((prev) => prev + 1);
+      setReceiptModalVisible(true);
+      Alert.alert('🎉 Receipt Generated', res.message);
     } else {
       Alert.alert('Payment Error', res.message);
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // RECEIPT MODAL & ACTIONS
+  // ----------------------------------------------------------------------------
+  const handleOpenReceiptModal = (bill, payment) => {
+    setSelectedBill(bill);
+    setSelectedReceiptPayment(payment);
+    setReceiptModalVisible(true);
+  };
+
+  const handlePrintReceipt = (bill = selectedBill, payment = selectedReceiptPayment) => {
+    if (!bill || !payment) return;
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const htmlContent = generateA4ReceiptHTML(bill, payment);
+      const printWindow = window.open('', '_blank', 'width=750,height=880');
+      if (printWindow) {
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => {
+          printWindow.print();
+        }, 300);
+      } else {
+        window.print();
+      }
+    } else {
+      Alert.alert('Print Receipt', 'Please use WhatsApp Share to deliver digital payment receipt on mobile.');
+    }
+  };
+
+  const handleShareReceiptWhatsApp = (bill = selectedBill, payment = selectedReceiptPayment) => {
+    if (!bill || !payment) return;
+    const text = generateWhatsAppReceiptShareText(bill, payment);
+    const url = `https://wa.me/91${bill.customer_phone}?text=${text}`;
+    if (Platform.OS === 'web') {
+      window.open(url, '_blank');
+    } else {
+      Linking.openURL(url).catch(() => {
+        Alert.alert('WhatsApp Error', 'Could not open WhatsApp on device.');
+      });
     }
   };
 
@@ -354,9 +404,10 @@ export default function BillBookView({
   };
 
   // ----------------------------------------------------------------------------
-  // WHATSAPP SHARE & PRINT ACTIONS
+  // WHATSAPP SHARE, PRINT & DOWNLOAD ACTIONS (PROFESSIONAL A4 LAYOUT)
   // ----------------------------------------------------------------------------
-  const handleShareWhatsApp = (bill) => {
+  const handleShareWhatsApp = (bill = selectedBill) => {
+    if (!bill) return;
     const text = generateWhatsAppInvoiceShareText(bill);
     const url = `https://wa.me/91${bill.customer_phone}?text=${text}`;
     if (Platform.OS === 'web') {
@@ -368,11 +419,48 @@ export default function BillBookView({
     }
   };
 
-  const handlePrintInvoice = () => {
+  const handlePrintInvoice = (bill = selectedBill) => {
+    if (!bill) return;
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.print();
+      const htmlContent = generateA4InvoiceHTML(bill);
+      const printWindow = window.open('', '_blank', 'width=900,height=960');
+      if (printWindow) {
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => {
+          printWindow.print();
+        }, 350);
+      } else {
+        window.print();
+      }
     } else {
-      Alert.alert('Print / PDF', 'On mobile devices, screenshot or share via WhatsApp/PDF viewer.');
+      Alert.alert('Print / PDF', 'On mobile devices, use WhatsApp Share or capture screenshot for instant A4 PDF.');
+    }
+  };
+
+  const handleDownloadInvoicePDF = (bill = selectedBill) => {
+    if (!bill) return;
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const htmlContent = generateA4InvoiceHTML(bill);
+      try {
+        const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `Invoice-${bill.bill_number}.html`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        // Fallback
+      }
+      // Also open print window so user can choose "Save as PDF"
+      handlePrintInvoice(bill);
+    } else {
+      Alert.alert('Download PDF', 'Use WhatsApp Share to export and save invoice PDF on mobile.');
     }
   };
 
@@ -446,7 +534,7 @@ export default function BillBookView({
 
       {/* Financial Overview Cards */}
       <View style={styles.summaryGrid}>
-        <View style={[styles.summaryCard, { borderLeftColor: '#2563eb' }]}>
+        <View style={[styles.summaryCard, { borderLeftColor: '#1976D2' }]}>
           <Text style={styles.summaryLabel}>Total Invoiced (₹)</Text>
           <Text style={styles.summaryValue}>₹{summary.totalInvoiced.toLocaleString('en-IN')}</Text>
           <Text style={styles.summarySub}>{summary.totalBills} Total Bills</Text>
@@ -460,7 +548,7 @@ export default function BillBookView({
           <Text style={styles.summarySub}>{summary.paidCount} Fully Paid</Text>
         </View>
 
-        <View style={[styles.summaryCard, { borderLeftColor: '#d97706' }]}>
+        <View style={[styles.summaryCard, { borderLeftColor: '#D4AF37' }]}>
           <Text style={styles.summaryLabel}>Outstanding Balance (₹)</Text>
           <Text style={[styles.summaryValue, { color: '#d97706' }]}>
             ₹{summary.totalOutstanding.toLocaleString('en-IN')}
@@ -969,7 +1057,7 @@ export default function BillBookView({
       </Modal>
 
       {/* ====================================================================== */}
-      {/* MODAL 2: PRINTABLE INVOICE PREVIEW MODAL */}
+      {/* MODAL 2: PRINTABLE INVOICE PREVIEW MODAL (PROFESSIONAL BLUE + WHITE + GOLDEN) */}
       {/* ====================================================================== */}
       <Modal visible={invoicePreviewModalVisible} animationType="fade" transparent={true}>
         <View style={styles.modalBackdrop}>
@@ -977,8 +1065,11 @@ export default function BillBookView({
             {/* Top Toolbar */}
             <View style={styles.invoiceToolbar}>
               <View style={styles.toolbarLeft}>
-                <TouchableOpacity style={styles.printActionBtn} onPress={handlePrintInvoice}>
-                  <Text style={styles.printActionBtnText}>🖨️ Print / Save PDF</Text>
+                <TouchableOpacity style={styles.printActionBtn} onPress={() => handlePrintInvoice(selectedBill)}>
+                  <Text style={styles.printActionBtnText}>🖨️ Print Invoice</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.downloadActionBtn} onPress={() => handleDownloadInvoicePDF(selectedBill)}>
+                  <Text style={styles.downloadActionBtnText}>⬇️ Download PDF</Text>
                 </TouchableOpacity>
                 {selectedBill && (
                   <TouchableOpacity
@@ -999,11 +1090,17 @@ export default function BillBookView({
 
             {selectedBill && (
               <ScrollView style={styles.invoicePrintBody} showsVerticalScrollIndicator={false}>
-                {/* Invoice Letterhead */}
+                {/* Brand Banner */}
+                <View style={styles.invoiceBrandBanner}>
+                  <Text style={styles.invoiceBrandLogoText}>✨ SHUBH CELEBRATIONS</Text>
+                  <Text style={styles.invoiceBrandTagline}>All India Event Marketplace & Digital Invoicing</Text>
+                </View>
+
+                {/* Letterhead */}
                 <View style={styles.invoiceLetterhead}>
                   <View style={styles.brandTitleCol}>
                     <Text style={styles.invoiceVendorName}>{selectedBill.vendor_name}</Text>
-                    <Text style={styles.invoiceVendorSub}>Specialist in Wedding Mandaps, Events & Royal Decor</Text>
+                    <Text style={styles.invoiceVendorSub}>Verified Wedding & Event Vendor</Text>
                     <Text style={styles.invoiceVendorAddress}>📍 {selectedBill.vendor_location}</Text>
                     <Text style={styles.invoiceVendorPhone}>📞 Phone: +91 {selectedBill.vendor_phone}</Text>
                   </View>
@@ -1023,6 +1120,25 @@ export default function BillBookView({
                       <Text style={styles.metaBold}>Event Date: </Text>
                       {selectedBill.event_date}
                     </Text>
+
+                    {/* Status Badge */}
+                    <View style={[
+                      styles.statusPillBadge,
+                      selectedBill.payment_status === 'paid' && styles.statusPillPaid,
+                      selectedBill.payment_status === 'partial' && styles.statusPillPartial,
+                      selectedBill.payment_status === 'unpaid' && styles.statusPillUnpaid,
+                      selectedBill.payment_status === 'cancelled' && styles.statusPillCancelled,
+                    ]}>
+                      <Text style={[
+                        styles.statusPillBadgeText,
+                        selectedBill.payment_status === 'paid' && styles.statusPillPaidText,
+                        selectedBill.payment_status === 'partial' && styles.statusPillPartialText,
+                        selectedBill.payment_status === 'unpaid' && styles.statusPillUnpaidText,
+                        selectedBill.payment_status === 'cancelled' && styles.statusPillCancelledText,
+                      ]}>
+                        {selectedBill.payment_status?.toUpperCase() || 'UNPAID'}
+                      </Text>
+                    </View>
                   </View>
                 </View>
 
@@ -1062,7 +1178,7 @@ export default function BillBookView({
                       <Text style={[styles.td, { width: 90, textAlign: 'right' }]}>
                         ₹{Number(it.rate).toLocaleString('en-IN')}
                       </Text>
-                      <Text style={[styles.td, { width: 90, textAlign: 'right', fontWeight: '700' }]}>
+                      <Text style={[styles.td, { width: 90, textAlign: 'right', fontWeight: '700', color: '#1976D2' }]}>
                         ₹{Number(it.amount).toLocaleString('en-IN')}
                       </Text>
                     </View>
@@ -1112,25 +1228,23 @@ export default function BillBookView({
                         </Text>
                       </View>
                     )}
-                    <View style={[styles.summaryLine, styles.summaryLineTotal]}>
-                      <Text style={styles.grandTotalLabel}>Grand Total:</Text>
-                      <Text style={styles.grandTotalVal}>
+                    <View style={styles.grandTotalHighlightBanner}>
+                      <Text style={styles.grandTotalBannerLabel}>Grand Total:</Text>
+                      <Text style={styles.grandTotalBannerVal}>
                         ₹{Number(selectedBill.grand_total).toLocaleString('en-IN')}
                       </Text>
                     </View>
 
                     <View style={styles.summaryLine}>
                       <Text style={styles.summaryLineLabel}>Total Paid:</Text>
-                      <Text style={[styles.summaryLineVal, { color: '#16a34a', fontWeight: '700' }]}>
+                      <Text style={[styles.summaryLineVal, { color: '#15803d', fontWeight: '700' }]}>
                         ₹{Number(selectedBill.total_paid).toLocaleString('en-IN')}
                       </Text>
                     </View>
 
-                    <View style={[styles.summaryLine, { borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingTop: 6 }]}>
-                      <Text style={[styles.summaryLineLabel, { fontWeight: '800', color: '#b45309' }]}>
-                        Remaining Balance:
-                      </Text>
-                      <Text style={[styles.summaryLineVal, { fontWeight: '900', color: '#b45309', fontSize: 16 }]}>
+                    <View style={styles.remainingBalanceHighlightBanner}>
+                      <Text style={styles.remainingBalanceBannerLabel}>Remaining Balance:</Text>
+                      <Text style={styles.remainingBalanceBannerVal}>
                         ₹{Number(selectedBill.balance_due).toLocaleString('en-IN')}
                       </Text>
                     </View>
@@ -1143,21 +1257,42 @@ export default function BillBookView({
                     <Text style={styles.boxHeaderTitle}>Payment History & Receipts Issued:</Text>
                     {selectedBill.payments.map((p, pIdx) => (
                       <View key={p.id || pIdx} style={styles.paymentHistoryRow}>
-                        <Text style={styles.receiptIdText}>#{p.id}</Text>
-                        <Text style={styles.receiptDateText}>{p.date}</Text>
-                        <Text style={styles.receiptMethodText}>{p.method} ({p.reference})</Text>
-                        <Text style={styles.receiptAmountText}>+₹{Number(p.amount).toLocaleString('en-IN')}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.receiptIdText}>#{p.id} • {p.date}</Text>
+                          <Text style={styles.receiptMethodText}>{p.method} ({p.reference})</Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                          <Text style={styles.receiptAmountText}>+₹{Number(p.amount).toLocaleString('en-IN')}</Text>
+                          <TouchableOpacity
+                            style={styles.receiptMiniBtn}
+                            onPress={() => handleOpenReceiptModal(selectedBill, p)}
+                          >
+                            <Text style={styles.receiptMiniBtnText}>🧾 View Receipt</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     ))}
                   </View>
                 )}
 
-                {/* Footer Signoff */}
-                <View style={styles.invoiceSignoffRow}>
-                  <Text style={styles.authorizedSignText}>Authorized Signatory</Text>
-                  <Text style={styles.signatoryVendor}>{selectedBill.vendor_name}</Text>
+                {/* Signatures Section: Vendor & Customer */}
+                <View style={styles.invoiceSignaturesRow}>
+                  <View style={styles.signatureBox}>
+                    <Text style={styles.signatureTitle}>Client Signature & Acceptance</Text>
+                    <Text style={styles.signatureName}>{selectedBill.customer_name}</Text>
+                    <Text style={styles.signatureDesc}>Received in good order & accepted</Text>
+                  </View>
+                  <View style={styles.signatureBox}>
+                    <Text style={styles.signatureTitle}>Authorized Signatory</Text>
+                    <Text style={styles.signatureName}>{selectedBill.vendor_name}</Text>
+                    <Text style={styles.signatureDesc}>Authorized Seal & Signature</Text>
+                  </View>
+                </View>
+
+                {/* Platform Footer */}
+                <View style={styles.invoiceFooterAttribution}>
                   <Text style={styles.platformAttribution}>
-                    Digitally Issued via Shubh Celebrations • All India Event Marketplace
+                    ✨ Digitally Verified & Issued via Shubh Celebrations • All India Event Marketplace
                   </Text>
                 </View>
               </ScrollView>
@@ -1283,6 +1418,127 @@ export default function BillBookView({
           </View>
         </View>
       </Modal>
+
+      {/* ====================================================================== */}
+      {/* MODAL 5: OFFICIAL PAYMENT RECEIPT SLIP MODAL */}
+      {/* ====================================================================== */}
+      <Modal visible={receiptModalVisible} animationType="fade" transparent={true}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.receiptSlipCard, isMobile && { width: '96%' }]}>
+            {/* Header */}
+            <View style={styles.receiptSlipHeader}>
+              <View>
+                <Text style={styles.receiptSlipBrand}>✨ SHUBH CELEBRATIONS</Text>
+                <Text style={styles.receiptSlipBadge}>OFFICIAL PAYMENT RECEIPT</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.modalCloseBtn}
+                onPress={() => setReceiptModalVisible(false)}
+              >
+                <Text style={styles.modalCloseBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {selectedBill && selectedReceiptPayment && (
+              <ScrollView style={styles.receiptSlipBody} showsVerticalScrollIndicator={false}>
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptRowLabel}>Receipt Number:</Text>
+                  <Text style={[styles.receiptRowVal, { color: '#1976D2', fontWeight: '800' }]}>
+                    #{selectedReceiptPayment.id}
+                  </Text>
+                </View>
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptRowLabel}>Payment Date:</Text>
+                  <Text style={styles.receiptRowVal}>{selectedReceiptPayment.date}</Text>
+                </View>
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptRowLabel}>Linked Bill Number:</Text>
+                  <Text style={styles.receiptRowVal}>{selectedBill.bill_number}</Text>
+                </View>
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptRowLabel}>Received From (Customer):</Text>
+                  <Text style={styles.receiptRowVal}>{selectedBill.customer_name} (+91 {selectedBill.customer_phone})</Text>
+                </View>
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptRowLabel}>Issued By (Vendor):</Text>
+                  <Text style={styles.receiptRowVal}>{selectedBill.vendor_name} (+91 {selectedBill.vendor_phone})</Text>
+                </View>
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptRowLabel}>Event Particulars:</Text>
+                  <Text style={styles.receiptRowVal}>{selectedBill.event_name} ({selectedBill.event_date})</Text>
+                </View>
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptRowLabel}>Payment Method & Ref:</Text>
+                  <Text style={styles.receiptRowVal}>
+                    {selectedReceiptPayment.method} ({selectedReceiptPayment.reference || 'Manual Entry'})
+                  </Text>
+                </View>
+
+                {/* Amount Highlight Card */}
+                <View style={styles.receiptAmountCard}>
+                  <Text style={styles.receiptAmountCardLabel}>AMOUNT RECEIVED</Text>
+                  <Text style={styles.receiptAmountCardVal}>
+                    ₹{Number(selectedReceiptPayment.amount).toLocaleString('en-IN')}
+                  </Text>
+                  <Text style={styles.receiptAmountCardSub}>
+                    Recorded towards Tax Invoice #{selectedBill.bill_number}
+                  </Text>
+                </View>
+
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptRowLabel}>Total Invoiced Amount:</Text>
+                  <Text style={styles.receiptRowVal}>₹{Number(selectedBill.grand_total).toLocaleString('en-IN')}</Text>
+                </View>
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptRowLabel}>Total Paid to Date:</Text>
+                  <Text style={[styles.receiptRowVal, { color: '#15803d', fontWeight: '800' }]}>
+                    ₹{Number(selectedBill.total_paid).toLocaleString('en-IN')}
+                  </Text>
+                </View>
+                <View style={[styles.receiptRow, { backgroundColor: '#fff8e1', paddingHorizontal: 8, borderRadius: 6, borderColor: '#D4AF37', borderWidth: 1 }]}>
+                  <Text style={[styles.receiptRowLabel, { color: '#92400e', fontWeight: '800' }]}>Remaining Balance:</Text>
+                  <Text style={[styles.receiptRowVal, { color: '#92400e', fontSize: 14, fontWeight: '900' }]}>
+                    ₹{Number(selectedBill.balance_due).toLocaleString('en-IN')}
+                  </Text>
+                </View>
+
+                {/* Signatures */}
+                <View style={styles.receiptSignaturesRow}>
+                  <View style={styles.receiptSignBox}>
+                    <Text style={styles.receiptSignTitle}>CLIENT ACKNOWLEDGMENT</Text>
+                    <Text style={styles.receiptSignName}>{selectedBill.customer_name}</Text>
+                  </View>
+                  <View style={styles.receiptSignBox}>
+                    <Text style={styles.receiptSignTitle}>AUTHORIZED SIGNATURE</Text>
+                    <Text style={styles.receiptSignName}>{selectedBill.vendor_name}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.receiptActionsRow}>
+                  <TouchableOpacity
+                    style={styles.printActionBtn}
+                    onPress={() => handlePrintReceipt(selectedBill, selectedReceiptPayment)}
+                  >
+                    <Text style={styles.printActionBtnText}>🖨️ Print Receipt</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.whatsAppActionBtn}
+                    onPress={() => handleShareReceiptWhatsApp(selectedBill, selectedReceiptPayment)}
+                  >
+                    <Text style={styles.whatsAppActionBtnText}>💬 Share Receipt</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.receiptCloseBtn}
+                    onPress={() => setReceiptModalVisible(false)}
+                  >
+                    <Text style={styles.receiptCloseBtnText}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1324,11 +1580,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   primaryBtn: {
-    backgroundColor: '#2563eb', // Clean Blue Primary
+    backgroundColor: '#1976D2', // Professional Blue Primary
     paddingHorizontal: 16,
     paddingVertical: 9,
     borderRadius: 8,
-    shadowColor: '#2563eb',
+    shadowColor: '#1976D2',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
@@ -1438,7 +1694,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
   },
   filterPillActive: {
-    backgroundColor: '#2563eb',
+    backgroundColor: '#1976D2',
   },
   filterPillText: {
     fontSize: 12,
@@ -1477,7 +1733,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   createFirstBtn: {
-    backgroundColor: '#2563eb',
+    backgroundColor: '#1976D2',
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 8,
@@ -1647,7 +1903,7 @@ const styles = StyleSheet.create({
     color: '#15803d',
   },
   actionBtnPrimary: {
-    backgroundColor: '#2563eb',
+    backgroundColor: '#1976D2',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 6,
@@ -1782,7 +2038,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 9,
     borderRadius: 8,
-    backgroundColor: '#2563eb',
+    backgroundColor: '#1976D2',
   },
   modalSubmitBtnText: {
     fontSize: 13,
@@ -1879,8 +2135,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   taxPillActive: {
-    backgroundColor: '#2563eb',
-    borderColor: '#1d4ed8',
+    backgroundColor: '#1976D2',
+    borderColor: '#1565C0',
   },
   taxPillText: {
     fontSize: 11,
@@ -1916,19 +2172,21 @@ const styles = StyleSheet.create({
   calcGrandLabel: { fontSize: 14, color: '#78350f', fontWeight: '800' },
   calcGrandVal: { fontSize: 15, color: '#78350f', fontWeight: '900' },
 
-  // Invoice Print Preview Card
+  // Invoice Print Preview Card (Professional Blue #1976D2, Pure White #FFFFFF, Golden #D4AF37)
   invoicePrintCard: {
     width: '90%',
     maxWidth: 820,
-    maxHeight: '90%',
+    maxHeight: '92%',
     backgroundColor: '#ffffff',
     borderRadius: 14,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   invoiceToolbar: {
     flexDirection: 'row',
@@ -1942,22 +2200,36 @@ const styles = StyleSheet.create({
   },
   toolbarLeft: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
+    flexWrap: 'wrap',
   },
   printActionBtn: {
-    backgroundColor: '#2563eb',
-    paddingHorizontal: 14,
+    backgroundColor: '#1976D2',
+    paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#1565C0',
   },
   printActionBtnText: {
     color: '#ffffff',
     fontSize: 12,
     fontWeight: '700',
   },
+  downloadActionBtn: {
+    backgroundColor: '#0D47A1',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 6,
+  },
+  downloadActionBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   whatsAppActionBtn: {
     backgroundColor: '#16a34a',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 6,
   },
@@ -1976,14 +2248,40 @@ const styles = StyleSheet.create({
   },
   invoiceCloseBtnText: { fontSize: 14, fontWeight: '700', color: '#475569' },
   invoicePrintBody: {
-    padding: 24,
+    padding: 20,
     backgroundColor: '#ffffff',
   },
+
+  // Branding Top Banner
+  invoiceBrandBanner: {
+    backgroundColor: '#1976D2',
+    borderBottomWidth: 3,
+    borderBottomColor: '#D4AF37',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  invoiceBrandLogoText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#ffffff',
+    letterSpacing: 0.8,
+  },
+  invoiceBrandTagline: {
+    fontSize: 11,
+    color: '#FFF9C4',
+    fontWeight: '600',
+  },
+
   invoiceLetterhead: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    borderBottomWidth: 2,
-    borderBottomColor: '#0f172a',
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#e2e8f0',
     paddingBottom: 14,
     marginBottom: 14,
   },
@@ -1991,15 +2289,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   invoiceVendorName: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
-    color: '#0f172a',
+    color: '#1976D2',
   },
   invoiceVendorSub: {
     fontSize: 11,
-    color: '#d97706',
-    fontWeight: '700',
-    marginTop: 1,
+    color: '#D4AF37',
+    fontWeight: '800',
+    marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   invoiceVendorAddress: {
     fontSize: 11,
@@ -2015,17 +2315,19 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   invoiceBadge: {
-    backgroundColor: '#0f172a',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
+    backgroundColor: '#1976D2',
+    borderWidth: 1.5,
+    borderColor: '#D4AF37',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     borderRadius: 4,
     marginBottom: 6,
   },
   invoiceBadgeText: {
     color: '#ffffff',
     fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
   metaRowText: {
     fontSize: 11,
@@ -2037,6 +2339,24 @@ const styles = StyleSheet.create({
     color: '#1e293b',
   },
 
+  // Status Pill Badges
+  statusPillBadge: {
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  statusPillPaid: { backgroundColor: '#dcfce7', borderColor: '#86efac' },
+  statusPillPartial: { backgroundColor: '#fff8e1', borderColor: '#D4AF37' },
+  statusPillUnpaid: { backgroundColor: '#fee2e2', borderColor: '#fca5a5' },
+  statusPillCancelled: { backgroundColor: '#f1f5f9', borderColor: '#cbd5e1' },
+  statusPillBadgeText: { fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
+  statusPillPaidText: { color: '#15803d' },
+  statusPillPartialText: { color: '#b45309' },
+  statusPillUnpaidText: { color: '#dc2626' },
+  statusPillCancelledText: { color: '#64748b' },
+
   clientEventBox: {
     flexDirection: 'row',
     backgroundColor: '#f8fafc',
@@ -2047,21 +2367,32 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     gap: 16,
   },
-  clientCol: { flex: 1 },
-  eventCol: { flex: 1 },
+  clientCol: {
+    flex: 1,
+    borderLeftWidth: 3,
+    borderLeftColor: '#1976D2',
+    paddingLeft: 10,
+  },
+  eventCol: {
+    flex: 1,
+    borderLeftWidth: 3,
+    borderLeftColor: '#D4AF37',
+    paddingLeft: 10,
+  },
   boxHeaderTitle: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#64748b',
+    color: '#1976D2',
     textTransform: 'uppercase',
     marginBottom: 3,
+    letterSpacing: 0.5,
   },
   clientName: { fontSize: 13, fontWeight: '800', color: '#0f172a' },
   clientPhone: { fontSize: 11, color: '#475569', marginTop: 1 },
   eventTitle: { fontSize: 13, fontWeight: '800', color: '#0f172a' },
   eventVenue: { fontSize: 11, color: '#475569', marginTop: 1 },
 
-  // Table
+  // Table (Professional Blue Header, Golden Border)
   invoiceTable: {
     borderWidth: 1,
     borderColor: '#e2e8f0',
@@ -2071,8 +2402,10 @@ const styles = StyleSheet.create({
   },
   tableHeaderRow: {
     flexDirection: 'row',
-    backgroundColor: '#0f172a',
-    paddingVertical: 8,
+    backgroundColor: '#1976D2',
+    borderBottomWidth: 2,
+    borderBottomColor: '#D4AF37',
+    paddingVertical: 9,
     paddingHorizontal: 10,
   },
   th: {
@@ -2097,7 +2430,7 @@ const styles = StyleSheet.create({
 
   invoiceFooterSection: {
     flexDirection: 'row',
-    gap: 20,
+    gap: 16,
     marginBottom: 16,
   },
   termsNotesCol: {
@@ -2110,10 +2443,10 @@ const styles = StyleSheet.create({
   },
   termsTitle: {
     fontSize: 10,
-    fontWeight: '700',
-    color: '#64748b',
+    fontWeight: '800',
+    color: '#1976D2',
     textTransform: 'uppercase',
-    marginBottom: 2,
+    marginBottom: 3,
   },
   termsText: {
     fontSize: 11,
@@ -2126,24 +2459,43 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
-    padding: 12,
+    overflow: 'hidden',
   },
   summaryLine: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 3,
-  },
-  summaryLineTotal: {
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    paddingTop: 6,
-    marginTop: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
   },
   summaryLineLabel: { fontSize: 11, color: '#64748b', fontWeight: '600' },
   summaryLineVal: { fontSize: 11, color: '#1e293b', fontWeight: '700' },
-  grandTotalLabel: { fontSize: 13, color: '#0f172a', fontWeight: '800' },
-  grandTotalVal: { fontSize: 14, color: '#0f172a', fontWeight: '900' },
 
+  grandTotalHighlightBanner: {
+    backgroundColor: '#1976D2',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginVertical: 4,
+  },
+  grandTotalBannerLabel: { fontSize: 12, color: '#ffffff', fontWeight: '800' },
+  grandTotalBannerVal: { fontSize: 14, color: '#ffffff', fontWeight: '900' },
+
+  remainingBalanceHighlightBanner: {
+    backgroundColor: '#fff8e1',
+    borderTopWidth: 2,
+    borderTopColor: '#D4AF37',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  remainingBalanceBannerLabel: { fontSize: 12, color: '#92400e', fontWeight: '800' },
+  remainingBalanceBannerVal: { fontSize: 14, color: '#92400e', fontWeight: '900' },
+
+  // Payments History Box
   paymentHistoryBox: {
     backgroundColor: '#f0fdf4',
     borderWidth: 1,
@@ -2155,7 +2507,8 @@ const styles = StyleSheet.create({
   paymentHistoryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 3,
+    alignItems: 'center',
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: '#dcfce7',
   },
@@ -2163,33 +2516,202 @@ const styles = StyleSheet.create({
   receiptDateText: { fontSize: 11, color: '#64748b' },
   receiptMethodText: { fontSize: 11, color: '#475569' },
   receiptAmountText: { fontSize: 11, fontWeight: '800', color: '#15803d' },
+  receiptMiniBtn: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  receiptMiniBtnText: {
+    fontSize: 10,
+    color: '#15803d',
+    fontWeight: '700',
+  },
 
-  invoiceSignoffRow: {
+  // Both Signatures Section
+  invoiceSignaturesRow: {
     marginTop: 20,
     paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: '#e2e8f0',
-    alignItems: 'flex-end',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 30,
   },
-  authorizedSignText: {
+  signatureBox: {
+    flex: 1,
+    alignItems: 'center',
+    borderTopWidth: 1.5,
+    borderTopColor: '#94a3b8',
+    borderStyle: 'dashed',
+    paddingTop: 8,
+    marginTop: 24,
+  },
+  signatureTitle: {
     fontSize: 10,
-    color: '#94a3b8',
+    fontWeight: '800',
+    color: '#1976D2',
     textTransform: 'uppercase',
-    fontWeight: '700',
+    letterSpacing: 0.5,
   },
-  signatoryVendor: {
-    fontSize: 13,
+  signatureName: {
+    fontSize: 12,
     fontWeight: '800',
     color: '#0f172a',
     marginTop: 2,
-    marginBottom: 8,
+  },
+  signatureDesc: {
+    fontSize: 9,
+    color: '#64748b',
+    marginTop: 1,
+  },
+
+  invoiceFooterAttribution: {
+    marginTop: 14,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+    alignItems: 'center',
   },
   platformAttribution: {
     fontSize: 9,
     color: '#94a3b8',
     textAlign: 'center',
-    alignSelf: 'center',
-    marginTop: 8,
+    fontWeight: '600',
+  },
+
+  // Payment Receipt Slip Modal (MODAL 5)
+  receiptSlipCard: {
+    width: '90%',
+    maxWidth: 500,
+    maxHeight: '90%',
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 2,
+    borderColor: '#1976D2',
+  },
+  receiptSlipHeader: {
+    backgroundColor: '#1976D2',
+    borderBottomWidth: 3,
+    borderBottomColor: '#D4AF37',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  receiptSlipBrand: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#ffffff',
+    letterSpacing: 0.8,
+  },
+  receiptSlipBadge: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFF9C4',
+    letterSpacing: 0.5,
+  },
+  receiptSlipBody: {
+    padding: 18,
+    backgroundColor: '#ffffff',
+  },
+  receiptRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  receiptRowLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  receiptRowVal: {
+    fontSize: 12,
+    color: '#0f172a',
+    fontWeight: '700',
+  },
+  receiptAmountCard: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 2,
+    borderColor: '#86efac',
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 12,
+    alignItems: 'center',
+  },
+  receiptAmountCardLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#15803d',
+    letterSpacing: 0.5,
+  },
+  receiptAmountCardVal: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#15803d',
+    marginVertical: 2,
+  },
+  receiptAmountCardSub: {
+    fontSize: 11,
+    color: '#475569',
+  },
+  receiptSignaturesRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 20,
+    marginTop: 20,
+    marginBottom: 16,
+  },
+  receiptSignBox: {
+    flex: 1,
+    alignItems: 'center',
+    borderTopWidth: 1.5,
+    borderTopColor: '#94a3b8',
+    borderStyle: 'dashed',
+    paddingTop: 6,
+  },
+  receiptSignTitle: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#1976D2',
+    letterSpacing: 0.5,
+  },
+  receiptSignName: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginTop: 2,
+  },
+  receiptActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    paddingTop: 12,
+  },
+  receiptCloseBtn: {
+    backgroundColor: '#e2e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  receiptCloseBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
   },
 
   // Payment Small Modal

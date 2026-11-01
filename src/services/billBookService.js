@@ -865,7 +865,7 @@ export function getBillsFinancialSummary(billsList = []) {
 }
 
 // ------------------------------------------------------------------------------
-// 12. WHATSAPP SHARE MESSAGE GENERATOR
+// 12. WHATSAPP SHARE MESSAGE GENERATORS
 // ------------------------------------------------------------------------------
 
 export function generateWhatsAppInvoiceShareText(bill) {
@@ -895,9 +895,10 @@ export function generateWhatsAppInvoiceShareText(bill) {
     `-----------------------------------------\n` +
     `💰 *Subtotal:* ₹${Number(bill.subtotal).toLocaleString('en-IN')}\n` +
     (bill.discount > 0 ? `🎁 *Discount:* -₹${Number(bill.discount).toLocaleString('en-IN')}\n` : '') +
-    (bill.tax_amount > 0 ? `🏛️ *GST (${bill.tax_percent}%):* ₹${Number(bill.tax_amount).toLocaleString('en-IN')}\n` : '') +
+    (bill.additional_charges > 0 ? `🚚 *Extra Charges:* +₹${Number(bill.additional_charges).toLocaleString('en-IN')}\n` : '') +
+    (bill.tax_amount > 0 ? `🏛️ *GST (${bill.tax_percent}%):* +₹${Number(bill.tax_amount).toLocaleString('en-IN')}\n` : '') +
     `💳 *GRAND TOTAL:* ₹${Number(bill.grand_total).toLocaleString('en-IN')}\n` +
-    `💵 *Advance / Paid:* ₹${Number(bill.total_paid).toLocaleString('en-IN')}\n` +
+    `💵 *Total Paid:* ₹${Number(bill.total_paid).toLocaleString('en-IN')}\n` +
     `🔴 *BALANCE DUE:* ₹${Number(bill.balance_due).toLocaleString('en-IN')}\n` +
     `📌 *Status:* ${statusEmoji}\n` +
     `-----------------------------------------\n` +
@@ -906,3 +907,726 @@ export function generateWhatsAppInvoiceShareText(bill) {
     `🙏 Thank you for choosing *${bill.vendor_name}* on Shubh Celebrations!`
   );
 }
+
+export function generateWhatsAppReceiptShareText(bill, payment) {
+  if (!bill || !payment) return '';
+  return encodeURIComponent(
+    `🧾 *OFFICIAL PAYMENT RECEIPT*\n` +
+    `-----------------------------------------\n` +
+    `🏢 *Vendor:* ${bill.vendor_name}\n` +
+    `📞 *Contact:* +91 ${bill.vendor_phone}\n` +
+    `-----------------------------------------\n` +
+    `🔢 *Receipt No:* #${payment.id}\n` +
+    `📅 *Date:* ${payment.date}\n` +
+    `📋 *Linked Bill No:* ${bill.bill_number}\n` +
+    `👤 *Received From:* ${bill.customer_name} (+91 ${bill.customer_phone})\n` +
+    `🎪 *Event:* ${bill.event_name}\n` +
+    `-----------------------------------------\n` +
+    `💰 *AMOUNT RECEIVED:* ₹${Number(payment.amount).toLocaleString('en-IN')}\n` +
+    `💳 *Payment Method:* ${payment.method} (${payment.reference || 'Direct'})\n` +
+    `📉 *Remaining Balance:* ₹${Number(bill.balance_due).toLocaleString('en-IN')}\n` +
+    `-----------------------------------------\n` +
+    `🙏 Thank you for your payment! Keep this receipt for your records.\n` +
+    `✨ Digitally Issued via Shubh Celebrations`
+  );
+}
+
+// ------------------------------------------------------------------------------
+// 13. PROFESSIONAL A4 INVOICE & RECEIPT HTML GENERATORS
+// Palette: Professional Blue (#1976D2), Pure White (#FFFFFF), Premium Golden (#D4AF37)
+// ------------------------------------------------------------------------------
+
+export function generateA4InvoiceHTML(bill) {
+  if (!bill) return '';
+
+  const itemsRows = (bill.items || []).map((it, idx) => `
+    <tr>
+      <td style="text-align:center; color:#64748b;">${idx + 1}</td>
+      <td style="font-weight:600; color:#1e293b;">${it.description}</td>
+      <td style="text-align:center;">${it.quantity}</td>
+      <td style="text-align:right;">₹${Number(it.rate).toLocaleString('en-IN')}</td>
+      <td style="text-align:right; font-weight:700; color:#1976D2;">₹${Number(it.amount).toLocaleString('en-IN')}</td>
+    </tr>
+  `).join('');
+
+  const statusClass =
+    bill.payment_status === 'paid' ? 'status-paid' :
+    bill.payment_status === 'partial' ? 'status-partial' :
+    bill.payment_status === 'cancelled' ? 'status-cancelled' : 'status-unpaid';
+
+  const statusLabel =
+    bill.payment_status === 'paid' ? 'PAID' :
+    bill.payment_status === 'partial' ? 'PARTIALLY PAID' :
+    bill.payment_status === 'cancelled' ? 'CANCELLED' : 'UNPAID';
+
+  const paymentsRows = (bill.payments && bill.payments.length > 0) ? `
+    <div class="payments-box">
+      <div class="box-title">Payment History & Receipts Issued:</div>
+      ${bill.payments.map(p => `
+        <div class="payment-row">
+          <span><strong style="color:#1976D2;">#${p.id}</strong> • ${p.date} (${p.method} - ${p.reference || 'Manual'})</span>
+          <span style="font-weight:800; color:#15803d;">+₹${Number(p.amount).toLocaleString('en-IN')}</span>
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tax Invoice - ${bill.bill_number}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 10mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: #ffffff;
+      color: #1e293b;
+      margin: 0;
+      padding: 0;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .invoice-card {
+      width: 100%;
+      max-width: 820px;
+      margin: 0 auto;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    /* Brand Top Banner */
+    .brand-top-bar {
+      background: #1976D2;
+      color: #ffffff;
+      padding: 10px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 3px solid #D4AF37;
+    }
+    .brand-name {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .brand-subtitle {
+      font-size: 11px;
+      color: #FFF9C4;
+      font-weight: 600;
+    }
+
+    /* Letterhead */
+    .letterhead-section {
+      padding: 22px 26px 16px 26px;
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid #e2e8f0;
+      background: #ffffff;
+    }
+    .vendor-info-col {
+      max-width: 58%;
+    }
+    .vendor-title {
+      font-size: 24px;
+      font-weight: 900;
+      color: #1976D2;
+      margin: 0 0 4px 0;
+    }
+    .vendor-specialty {
+      font-size: 11px;
+      font-weight: 700;
+      color: #D4AF37;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin: 0 0 6px 0;
+    }
+    .vendor-meta-text {
+      font-size: 12px;
+      color: #475569;
+      margin: 2px 0;
+    }
+
+    /* Invoice Meta & Badge */
+    .invoice-meta-col {
+      text-align: right;
+    }
+    .tax-invoice-badge {
+      display: inline-block;
+      background: #1976D2;
+      color: #ffffff;
+      border: 1.5px solid #D4AF37;
+      font-weight: 900;
+      font-size: 12px;
+      letter-spacing: 1.5px;
+      padding: 4px 14px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    .meta-line {
+      font-size: 12px;
+      color: #475569;
+      margin: 3px 0;
+    }
+    .meta-line strong {
+      color: #0f172a;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 3px 12px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      margin-top: 5px;
+      text-transform: uppercase;
+    }
+    .status-paid {
+      background: #dcfce7;
+      color: #15803d;
+      border: 1px solid #86efac;
+    }
+    .status-partial {
+      background: #fff8e1;
+      color: #b45309;
+      border: 1px solid #D4AF37;
+    }
+    .status-unpaid {
+      background: #fee2e2;
+      color: #dc2626;
+      border: 1px solid #fca5a5;
+    }
+    .status-cancelled {
+      background: #f1f5f9;
+      color: #64748b;
+      border: 1px solid #cbd5e1;
+    }
+
+    /* Client & Event Particulars */
+    .parties-row {
+      padding: 16px 26px;
+      display: flex;
+      gap: 18px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .party-card {
+      flex: 1;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-top: 3px solid #1976D2;
+      border-radius: 6px;
+      padding: 12px 14px;
+    }
+    .party-card-title {
+      font-size: 11px;
+      font-weight: 800;
+      color: #1976D2;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .party-title-text {
+      font-size: 14px;
+      font-weight: 800;
+      color: #0f172a;
+      margin-bottom: 2px;
+    }
+    .party-sub-text {
+      font-size: 12px;
+      color: #475569;
+      margin: 1px 0;
+    }
+
+    /* Itemized Services Table */
+    .table-container {
+      padding: 16px 26px;
+    }
+    table.items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 16px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    table.items-table th {
+      background: #1976D2;
+      color: #ffffff;
+      padding: 10px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      text-align: left;
+      border-bottom: 2px solid #D4AF37;
+    }
+    table.items-table td {
+      padding: 9px 12px;
+      font-size: 12px;
+      border-bottom: 1px solid #e2e8f0;
+      color: #334155;
+    }
+    table.items-table tr:nth-child(even) td {
+      background: #f8fafc;
+    }
+
+    /* Footer / Totals Section */
+    .totals-terms-section {
+      padding: 0 26px 16px 26px;
+      display: flex;
+      gap: 20px;
+    }
+    .terms-box {
+      flex: 1.2;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 12px 14px;
+    }
+    .box-title {
+      font-size: 11px;
+      font-weight: 800;
+      color: #1976D2;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .terms-text {
+      font-size: 11px;
+      color: #475569;
+      line-height: 1.5;
+      white-space: pre-line;
+    }
+    .totals-box {
+      flex: 1;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .total-line {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 12px;
+      font-size: 12px;
+      color: #475569;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .grand-total-banner {
+      background: #1976D2;
+      color: #ffffff;
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      font-weight: 900;
+    }
+    .remaining-balance-banner {
+      background: #fff8e1;
+      border-top: 2px solid #D4AF37;
+      color: #92400e;
+      padding: 8px 12px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    /* Payments History */
+    .payments-box {
+      margin: 0 26px 16px 26px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 6px;
+      padding: 10px 14px;
+    }
+    .payment-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      padding: 3px 0;
+      border-bottom: 1px dashed #dcfce7;
+      color: #334155;
+    }
+
+    /* Signatures Section */
+    .signatures-section {
+      padding: 24px 26px 16px 26px;
+      display: flex;
+      justify-content: space-between;
+      gap: 36px;
+    }
+    .sign-card {
+      flex: 1;
+      text-align: center;
+      border-top: 1.5px dashed #94a3b8;
+      padding-top: 8px;
+      margin-top: 36px;
+    }
+    .sign-title {
+      font-size: 11px;
+      font-weight: 800;
+      color: #1976D2;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .sign-name {
+      font-size: 12px;
+      color: #0f172a;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+    .sign-desc {
+      font-size: 10px;
+      color: #64748b;
+      margin-top: 1px;
+    }
+
+    /* Bottom Attribution */
+    .bottom-attribution {
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+      padding: 8px 24px;
+      text-align: center;
+      font-size: 10px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="invoice-card">
+    <!-- Top Branding Banner -->
+    <div class="brand-top-bar">
+      <div class="brand-name">✨ SHUBH CELEBRATIONS</div>
+      <div class="brand-subtitle">All India Event Marketplace & Digital Invoicing</div>
+    </div>
+
+    <!-- Letterhead -->
+    <div class="letterhead-section">
+      <div class="vendor-info-col">
+        <h1 class="vendor-title">${bill.vendor_name}</h1>
+        <div class="vendor-specialty">Verified Wedding & Event Vendor</div>
+        <div class="vendor-meta-text">📍 ${bill.vendor_location}</div>
+        <div class="vendor-meta-text">📞 +91 ${bill.vendor_phone}</div>
+      </div>
+      <div class="invoice-meta-col">
+        <div class="tax-invoice-badge">TAX INVOICE</div>
+        <div class="meta-line"><strong>Bill No:</strong> ${bill.bill_number}</div>
+        <div class="meta-line"><strong>Bill Date:</strong> ${bill.created_at?.split('T')[0] || bill.event_date}</div>
+        <div class="meta-line"><strong>Event Date:</strong> ${bill.event_date}</div>
+        <div class="status-badge ${statusClass}">${statusLabel}</div>
+      </div>
+    </div>
+
+    <!-- Client & Event Info -->
+    <div class="parties-row">
+      <div class="party-card">
+        <div class="party-card-title">Billed To (Client):</div>
+        <div class="party-title-text">${bill.customer_name}</div>
+        <div class="party-sub-text">📞 Phone: +91 ${bill.customer_phone}</div>
+      </div>
+      <div class="party-card">
+        <div class="party-card-title">Event Particulars:</div>
+        <div class="party-title-text">${bill.event_name}</div>
+        <div class="party-sub-text">📍 Venue: ${bill.event_location}</div>
+      </div>
+    </div>
+
+    <!-- Table of Services -->
+    <div class="table-container">
+      <table class="items-table">
+        <thead>
+          <tr>
+            <th style="width:36px; text-align:center;">#</th>
+            <th>Service / Product Description</th>
+            <th style="width:48px; text-align:center;">Qty</th>
+            <th style="width:90px; text-align:right;">Rate (₹)</th>
+            <th style="width:100px; text-align:right;">Amount (₹)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsRows}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Totals and Terms Section -->
+    <div class="totals-terms-section">
+      <div class="terms-box">
+        <div class="box-title">Terms & Conditions:</div>
+        <div class="terms-text">${bill.terms || '1. Advance confirms booking.\n2. Balance must be cleared before event setup.'}</div>
+        ${bill.notes ? `
+          <div class="box-title" style="margin-top:10px;">Vendor Notes:</div>
+          <div class="terms-text">${bill.notes}</div>
+        ` : ''}
+      </div>
+
+      <div class="totals-box">
+        <div class="total-line">
+          <span>Subtotal:</span>
+          <strong>₹${Number(bill.subtotal).toLocaleString('en-IN')}</strong>
+        </div>
+        ${bill.discount > 0 ? `
+          <div class="total-line" style="color:#dc2626;">
+            <span>Discount:</span>
+            <strong>-₹${Number(bill.discount).toLocaleString('en-IN')}</strong>
+          </div>
+        ` : ''}
+        ${bill.additional_charges > 0 ? `
+          <div class="total-line">
+            <span>Additional Charges:</span>
+            <strong>+₹${Number(bill.additional_charges).toLocaleString('en-IN')}</strong>
+          </div>
+        ` : ''}
+        ${bill.tax_amount > 0 ? `
+          <div class="total-line">
+            <span>GST (${bill.tax_percent}%):</span>
+            <strong>+₹${Number(bill.tax_amount).toLocaleString('en-IN')}</strong>
+          </div>
+        ` : ''}
+        <div class="grand-total-banner">
+          <span>Grand Total:</span>
+          <span>₹${Number(bill.grand_total).toLocaleString('en-IN')}</span>
+        </div>
+        <div class="total-line" style="color:#15803d; font-weight:700;">
+          <span>Total Paid:</span>
+          <span>₹${Number(bill.total_paid).toLocaleString('en-IN')}</span>
+        </div>
+        <div class="remaining-balance-banner">
+          <span>Remaining Balance:</span>
+          <span>₹${Number(bill.balance_due).toLocaleString('en-IN')}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Payment History -->
+    ${paymentsRows}
+
+    <!-- Signatures -->
+    <div class="signatures-section">
+      <div class="sign-card">
+        <div class="sign-title">Client Signature</div>
+        <div class="sign-name">${bill.customer_name}</div>
+        <div class="sign-desc">Received in good order & accepted</div>
+      </div>
+      <div class="sign-card">
+        <div class="sign-title">Authorized Signatory</div>
+        <div class="sign-name">${bill.vendor_name}</div>
+        <div class="sign-desc">Authorized Seal & Signature</div>
+      </div>
+    </div>
+
+    <!-- Footer Attribution -->
+    <div class="bottom-attribution">
+      Digitally Issued & Verified via Shubh Celebrations • All India Event Marketplace • Thank you for your business!
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+export function generateA4ReceiptHTML(bill, payment) {
+  if (!bill || !payment) return '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Payment Receipt - ${payment.id}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 14mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: #ffffff;
+      color: #1e293b;
+      margin: 0;
+      padding: 0;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .receipt-card {
+      width: 100%;
+      max-width: 680px;
+      margin: 20px auto;
+      background: #ffffff;
+      border: 2px solid #1976D2;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    .receipt-header {
+      background: #1976D2;
+      color: #ffffff;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 3px solid #D4AF37;
+    }
+    .receipt-brand {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 1px;
+    }
+    .receipt-badge {
+      background: #D4AF37;
+      color: #000000;
+      font-weight: 800;
+      font-size: 11px;
+      padding: 4px 12px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+    }
+    .receipt-body {
+      padding: 24px;
+    }
+    .receipt-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: 13px;
+    }
+    .receipt-row-label {
+      color: #64748b;
+      font-weight: 600;
+    }
+    .receipt-row-val {
+      color: #0f172a;
+      font-weight: 700;
+    }
+    .amount-highlight-box {
+      margin: 20px 0;
+      background: #f0fdf4;
+      border: 2px solid #86efac;
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+    }
+    .amount-title {
+      font-size: 12px;
+      color: #15803d;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .amount-val {
+      font-size: 28px;
+      color: #15803d;
+      font-weight: 900;
+      margin: 4px 0;
+    }
+    .receipt-signatures {
+      margin-top: 36px;
+      display: flex;
+      justify-content: space-between;
+      gap: 30px;
+    }
+    .receipt-sign-box {
+      flex: 1;
+      text-align: center;
+      border-top: 1.5px dashed #94a3b8;
+      padding-top: 8px;
+    }
+    .receipt-footer {
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+      padding: 10px 24px;
+      text-align: center;
+      font-size: 10px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="receipt-card">
+    <div class="receipt-header">
+      <div class="receipt-brand">✨ SHUBH CELEBRATIONS</div>
+      <div class="receipt-badge">OFFICIAL PAYMENT RECEIPT</div>
+    </div>
+    <div class="receipt-body">
+      <div class="receipt-row">
+        <span class="receipt-row-label">Receipt Number:</span>
+        <span class="receipt-row-val" style="color:#1976D2;">#${payment.id}</span>
+      </div>
+      <div class="receipt-row">
+        <span class="receipt-row-label">Payment Date:</span>
+        <span class="receipt-row-val">${payment.date}</span>
+      </div>
+      <div class="receipt-row">
+        <span class="receipt-row-label">Linked Bill Number:</span>
+        <span class="receipt-row-val">${bill.bill_number}</span>
+      </div>
+      <div class="receipt-row">
+        <span class="receipt-row-label">Received From (Client):</span>
+        <span class="receipt-row-val">${bill.customer_name} (+91 ${bill.customer_phone})</span>
+      </div>
+      <div class="receipt-row">
+        <span class="receipt-row-label">Issued By (Vendor):</span>
+        <span class="receipt-row-val">${bill.vendor_name} (+91 ${bill.vendor_phone})</span>
+      </div>
+      <div class="receipt-row">
+        <span class="receipt-row-label">Event:</span>
+        <span class="receipt-row-val">${bill.event_name} (${bill.event_date})</span>
+      </div>
+      <div class="receipt-row">
+        <span class="receipt-row-label">Payment Method & Reference:</span>
+        <span class="receipt-row-val">${payment.method} (${payment.reference || 'Manual Entry'})</span>
+      </div>
+
+      <div class="amount-highlight-box">
+        <div class="amount-title">Amount Received (₹)</div>
+        <div class="amount-val">₹${Number(payment.amount).toLocaleString('en-IN')}</div>
+        <div style="font-size:12px; color:#475569;">Recorded towards Tax Invoice #${bill.bill_number}</div>
+      </div>
+
+      <div class="receipt-row">
+        <span class="receipt-row-label">Total Invoiced Amount:</span>
+        <span class="receipt-row-val">₹${Number(bill.grand_total).toLocaleString('en-IN')}</span>
+      </div>
+      <div class="receipt-row">
+        <span class="receipt-row-label">Total Paid to Date:</span>
+        <span class="receipt-row-val" style="color:#15803d;">₹${Number(bill.total_paid).toLocaleString('en-IN')}</span>
+      </div>
+      <div class="receipt-row" style="background:#fff8e1; padding:8px 6px; border-radius:4px; border:1px solid #D4AF37;">
+        <span class="receipt-row-label" style="color:#92400e;">Remaining Outstanding Balance:</span>
+        <span class="receipt-row-val" style="color:#92400e; font-size:14px;">₹${Number(bill.balance_due).toLocaleString('en-IN')}</span>
+      </div>
+
+      <div class="receipt-signatures">
+        <div class="receipt-sign-box">
+          <div style="font-size:11px; font-weight:800; color:#1976D2;">CLIENT ACKNOWLEDGMENT</div>
+          <div style="font-size:12px; color:#0f172a; margin-top:2px;">${bill.customer_name}</div>
+        </div>
+        <div class="receipt-sign-box">
+          <div style="font-size:11px; font-weight:800; color:#1976D2;">AUTHORIZED SIGNATURE</div>
+          <div style="font-size:12px; color:#0f172a; margin-top:2px;">${bill.vendor_name}</div>
+        </div>
+      </div>
+    </div>
+    <div class="receipt-footer">
+      This is a digitally issued payment receipt powered by Shubh Celebrations • Valid for all billing reconciliations.
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
