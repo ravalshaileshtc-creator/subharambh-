@@ -777,17 +777,24 @@ export function reviewVendorApplication(applicationId, newStatus, rejectionReaso
 }
 
 // Multi-tenant Bookings Access
-export function getCustomerBookings() {
-  if (isAdminOrSuperAdmin()) {
+export function getCustomerBookings(user = currentUser) {
+  if (!user) return [];
+  const cleanPhone = String(user.phone || '').replace(/\D/g, '').slice(-10);
+  const custId = user.id ? String(user.id) : '';
+
+  if (isAdminOrSuperAdmin(user)) {
     return mockBookings;
   }
-  if (isStateManager()) {
-    return mockBookings.filter((b) => b.state_id === currentUser.assigned_state);
+  if (isStateManager(user)) {
+    return mockBookings.filter((b) => b.state_id === user.assigned_state);
   }
-  if (isCityManager()) {
-    return mockBookings.filter((b) => b.city_name === currentUser.assigned_city);
+  if (isCityManager(user)) {
+    return mockBookings.filter((b) => b.city_name === user.assigned_city);
   }
-  return mockBookings.filter((b) => b.customer_id === currentUser.id);
+  return mockBookings.filter((b) => 
+    (cleanPhone && b.customer_phone === cleanPhone) ||
+    (custId && b.customer_id === custId)
+  );
 }
 
 export function getVendorBookings() {

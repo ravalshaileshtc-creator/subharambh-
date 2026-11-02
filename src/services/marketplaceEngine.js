@@ -17,6 +17,7 @@ let directPayments = [
     booking_code: 'BK-2026-7841',
     customer_id: 'usr-cust-101',
     customer_name: 'Rajeshbhai Patel',
+    customer_phone: '9825098765',
     vendor_id: 1,
     vendor_name: 'Vallabh Decoration & Event Management',
     amount: 35000,
@@ -36,6 +37,7 @@ let directPayments = [
     booking_code: 'BK-2026-7841',
     customer_id: 'usr-cust-101',
     customer_name: 'Rajeshbhai Patel',
+    customer_phone: '9825098765',
     vendor_id: 1,
     vendor_name: 'Vallabh Decoration & Event Management',
     amount: 50000,
@@ -235,11 +237,20 @@ export function generateCommissionOnEventCompletion(booking) {
 // 2. DIRECT PAYMENT WORKFLOW (CUSTOMER PAYS VENDOR DIRECTLY)
 // ==============================================================================
 
-export function getDirectPayments(bookingId) {
+export function getDirectPayments(bookingId, filterUser = null) {
+  let list = directPayments;
   if (bookingId) {
-    return directPayments.filter((p) => p.booking_id === bookingId);
+    list = list.filter((p) => p.booking_id === bookingId);
   }
-  return directPayments;
+  if (filterUser && filterUser.role === 'customer') {
+    const cleanPhone = String(filterUser.phone || '').replace(/\D/g, '').slice(-10);
+    const userId = filterUser.id ? String(filterUser.id) : '';
+    list = list.filter((p) => 
+      (cleanPhone && p.customer_phone === cleanPhone) ||
+      (userId && p.customer_id === userId)
+    );
+  }
+  return list;
 }
 
 export function recordDirectPayment({

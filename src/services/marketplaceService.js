@@ -3,6 +3,8 @@
 // Core Architecture: Smart Matching, 5-Quotes Routing, Availability & Privacy
 // ==============================================================================
 
+import { supabase } from './authService.js';
+
 /**
  * STRICT PUBLIC VISIBILITY GATEKEEPER
  * Only businesses where:
@@ -112,46 +114,8 @@ const INITIAL_PORTFOLIOS = {
   },
 };
 
-// Global in-memory storage for Enquiries & Quotes
-let globalEnquiries = [
-  {
-    id: 'ENQ-2026-1001',
-    customer_name: 'Bhaveshbhai Patel',
-    customer_phone: '9825098765',
-    event_type: 'wedding',
-    location: 'Godhra (Vavdi Buzarg)',
-    event_date: '2026-12-18',
-    guest_count: '600',
-    services: ['mandap', 'party_plot', 'catering'],
-    budget: '₹3,50,000 - ₹5,00,000',
-    notes: 'Require traditional royal Mandap + Pure veg catering for 600 guests on Bamroli Road.',
-    status: 'Quotes Received',
-    matched_vendor_ids: [1, 5, 25],
-    created_at: new Date(Date.now() - 86400000).toISOString(),
-    quotes: [
-      {
-        id: 'Q-1001-1',
-        vendor_id: 1,
-        vendor_name: 'Vallabh Decoration & Event Management',
-        category: 'mandap',
-        quoted_price: '₹72,000',
-        package_details: 'Royal Rajwadi Mandap, 2 LED Entrance Gates, Chori set, and Reception backdrop included.',
-        status: 'Sent',
-        created_at: new Date(Date.now() - 43200000).toISOString(),
-      },
-      {
-        id: 'Q-1001-25',
-        vendor_id: 25,
-        vendor_name: 'Ganesh Catering Service',
-        category: 'catering',
-        quoted_price: '₹480/plate (₹2,88,000)',
-        package_details: 'Royal Gujarati Buffet with Live Chaat counter & 2 pure ghee sweets for 600 guests.',
-        status: 'Sent',
-        created_at: new Date(Date.now() - 36000000).toISOString(),
-      },
-    ],
-  },
-];
+// Global in-memory storage for Enquiries & Quotes (Strict Zero Mock Data)
+let globalEnquiries = [];
 
 let globalAvailability = { ...INITIAL_AVAILABILITY };
 let globalPortfolios = { ...INITIAL_PORTFOLIOS };
@@ -367,10 +331,13 @@ export function createCustomerEnquiry(payload, allVendors = []) {
 
   const matchedIds = matched.map((v) => v.id);
 
+  const cleanPhone = String(payload.customer_phone || '').replace(/\D/g, '').slice(-10);
+
   const newEnquiry = {
     id: enquiryCode,
+    customer_id: payload.customer_id || (payload.user ? payload.user.id : null),
     customer_name: payload.customer_name,
-    customer_phone: payload.customer_phone,
+    customer_phone: cleanPhone,
     event_type: payload.event_type || 'wedding',
     location: payload.location || 'Godhra',
     event_date: payload.event_date || 'Upcoming Season',
@@ -395,6 +362,36 @@ export function createCustomerEnquiry(payload, allVendors = []) {
   globalEnquiries.unshift(newEnquiry);
   logAuditEvent('CREATE_ENQUIRY', `Enquiry ${enquiryCode} created by ${payload.customer_name} dispatched to ${matched.length} vendors`);
 
+  // Asynchronous sync to Supabase public.enquiries table
+  if (supabase) {
+    try {
+      const numBudget = Number(String(payload.budget || '').replace(/\D/g, '')) || null;
+      const formattedDate = payload.event_date && /^\d{4}-\d{2}-\d{2}$/.test(payload.event_date)
+        ? payload.event_date
+        : new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+
+      supabase
+        .from('enquiries')
+        .insert([{
+          enquiry_code: enquiryCode,
+          customer_name: payload.customer_name,
+          customer_phone: cleanPhone,
+          customer_id: newEnquiry.customer_id || null,
+          event_type: payload.event_type || 'wedding',
+          event_date: formattedDate,
+          city_id: 'godhra',
+          state_id: 'GJ',
+          guest_count: String(payload.guest_count || ''),
+          budget: numBudget,
+          notes: payload.notes || '',
+        }])
+        .then(() => {})
+        .catch(() => {});
+    } catch (e) {
+      // Local copy safely stored in globalEnquiries
+    }
+  }
+
   return {
     success: true,
     enquiry: newEnquiry,
@@ -403,17 +400,124 @@ export function createCustomerEnquiry(payload, allVendors = []) {
   };
 }
 
-export function getCustomerEnquiries() {
+export function getCustomerEnquiries(filterUser = null) {
+  if (!filterUser) {
+    return globalEnquiries;
+  }
+
+  const role = filterUser.role;
+  const cleanPhone = String(filterUser.phone || '').replace(/\D/g, '').slice(-10);
+  const userId = filterUser.id ? String(filterUser.id) : '';
+
+  // Customers strictly see ONLY their own enquiries (by phone or UUID)
+  if (role === 'customer') {
+    return globalEnquiries.filter((e) => {
+      const matchPhone = cleanPhone && e.customer_phone === cleanPhone;
+      const matchId = userId && e.customer_id === userId;
+      return matchPhone || matchId;
+    });
+  }
+
+  // Vendors see enquiries routed to them
+  if (role === 'vendor') {
+    const vId = Number(filterUser.vendor_id || filterUser.id);
+    return globalEnquiries.filter((e) => e.matched_vendor_ids && e.matched_vendor_ids.includes(vId));
+  }
+
+  // Admins & Super Admins see all
+  if (role === 'admin' || role === 'super_admin') {
+    return globalEnquiries;
+  }
+
   return globalEnquiries;
 }
 
+export async function fetchRealtimeCustomerEnquiries(filterUser = null) {
+  if (!supabase) {
+    return getCustomerEnquiries(filterUser);
+  }
+
+  try {
+    let query = supabase.from('enquiries').select('*');
+    if (filterUser && filterUser.role === 'customer') {
+      const cleanPhone = String(filterUser.phone || '').replace(/\D/g, '').slice(-10);
+      if (cleanPhone) {
+        query = query.or(`customer_phone.eq.${cleanPhone},customer_phone.eq.+91${cleanPhone}`);
+      }
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (!error && Array.isArray(data)) {
+      for (const row of data) {
+        const existing = globalEnquiries.find((e) => e.id === row.enquiry_code);
+        if (!existing) {
+          globalEnquiries.push({
+            id: row.enquiry_code,
+            customer_name: row.customer_name,
+            customer_phone: row.customer_phone,
+            customer_id: row.customer_id,
+            event_type: row.event_type || 'wedding',
+            location: row.location || 'Godhra',
+            event_date: row.event_date || '',
+            guest_count: row.guest_count || '',
+            services: Array.isArray(row.services) ? row.services : ['mandap'],
+            budget: row.budget ? `₹${Number(row.budget).toLocaleString('en-IN')}` : '',
+            notes: row.notes || '',
+            status: row.status || 'Dispatched to Vendors',
+            matched_vendor_ids: Array.isArray(row.matched_vendor_ids) ? row.matched_vendor_ids : [],
+            matched_vendors: [],
+            quotes: [],
+            created_at: row.created_at,
+          });
+        }
+      }
+    }
+
+    // Also fetch quotations for enquiries
+    const { data: qData, error: qErr } = await supabase.from('quotations').select('*');
+    if (!qErr && Array.isArray(qData)) {
+      for (const q of qData) {
+        const targetEnq = globalEnquiries.find(
+          (e) => e.id === q.enquiry_code || (q.enquiry_id && String(e.id) === String(q.enquiry_id))
+        );
+        if (targetEnq) {
+          if (!Array.isArray(targetEnq.quotes)) targetEnq.quotes = [];
+          const exists = targetEnq.quotes.some((item) => item.vendor_id === q.vendor_id);
+          if (!exists) {
+            targetEnq.quotes.push({
+              id: `Q-${targetEnq.id.replace('ENQ-', '')}-${q.vendor_id}`,
+              vendor_id: q.vendor_id,
+              vendor_name: q.vendor_name || `Vendor #${q.vendor_id}`,
+              category: q.category || 'Service',
+              quoted_price: q.quoted_price || `₹${Number(q.quoted_amount).toLocaleString('en-IN')}`,
+              package_details: q.package_details || 'Verified quotation proposal.',
+              valid_until: q.valid_until || '15 Days',
+              status: q.status || 'Sent',
+              created_at: q.created_at,
+            });
+            targetEnq.status = `${targetEnq.quotes.length} Quotes Received`;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // Graceful fallback to memory
+  }
+
+  return getCustomerEnquiries(filterUser);
+}
+
+export function clearCustomerEnquiriesForTest() {
+  globalEnquiries = [];
+}
+
 export function submitVendorQuote(enquiryId, vendorId, quoteDetails) {
-  const enquiry = globalEnquiries.find((e) => e.id === enquiryId);
+  const enquiry = globalEnquiries.find((e) => e.id === enquiryId || String(e.id) === String(enquiryId));
   if (!enquiry) {
     return { success: false, message: 'Enquiry not found.' };
   }
 
-  const quoteId = `Q-${enquiryId.replace('ENQ-', '')}-${vendorId}`;
+  const quoteId = `Q-${String(enquiryId).replace('ENQ-', '')}-${vendorId}`;
   const newQuote = {
     id: quoteId,
     vendor_id: vendorId,
@@ -427,6 +531,9 @@ export function submitVendorQuote(enquiryId, vendorId, quoteDetails) {
   };
 
   // Replace or add quote
+  if (!Array.isArray(enquiry.quotes)) {
+    enquiry.quotes = [];
+  }
   const existingIdx = enquiry.quotes.findIndex((q) => q.vendor_id === vendorId);
   if (existingIdx >= 0) {
     enquiry.quotes[existingIdx] = newQuote;
@@ -436,6 +543,30 @@ export function submitVendorQuote(enquiryId, vendorId, quoteDetails) {
 
   enquiry.status = `${enquiry.quotes.length} Quotes Received`;
   logAuditEvent('SUBMIT_QUOTE', `Quote submitted for ${enquiryId} by vendor ${vendorId}`);
+
+  // Asynchronous sync to Supabase quotations table
+  if (supabase) {
+    try {
+      const numAmount = Number(String(quoteDetails.quoted_price || '').replace(/\D/g, '')) || 0;
+      supabase
+        .from('quotations')
+        .insert([{
+          enquiry_code: String(enquiryId),
+          vendor_id: vendorId,
+          vendor_name: quoteDetails.vendor_name || `Vendor #${vendorId}`,
+          category: quoteDetails.category || 'Service',
+          quoted_amount: numAmount,
+          quoted_price: quoteDetails.quoted_price || '',
+          package_details: quoteDetails.package_details || '',
+          valid_until: quoteDetails.valid_until || '15 Days',
+          status: 'Sent',
+        }])
+        .then(() => {})
+        .catch(() => {});
+    } catch (e) {
+      // Memory fallback safe
+    }
+  }
 
   return { success: true, quote: newQuote, totalQuotes: enquiry.quotes.length };
 }

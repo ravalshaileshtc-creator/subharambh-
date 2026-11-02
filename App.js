@@ -2939,6 +2939,8 @@ function MainApp() {
         categories={CATEGORIES}
         makeCall={makeCall}
         openWhatsApp={openWhatsApp}
+        user={currentUser}
+        currentUser={currentUser}
       />
 
       {/* ====================================================================== */}

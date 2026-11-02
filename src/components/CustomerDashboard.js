@@ -22,12 +22,12 @@ export default function CustomerDashboard({
   onNavigateTab,
 }) {
   const [subTab, setSubTab] = useState('bookings'); // 'bookings' | 'payments' | 'profile'
-  const bookings = getCustomerBookings();
-  const directPayments = getDirectPayments();
+  const bookings = getCustomerBookings(user);
+  const directPayments = getDirectPayments(null, user);
 
   const totalPaidDirect = directPayments
     .filter((p) => p.status === 'vendor_confirmed')
-    .reduce((sum, p) => sum + p.amount, 0);
+    .reduce((sum, p) => sum + (p.amount || 0), 0);
 
   return (
     <View style={styles.container}>
@@ -113,6 +113,9 @@ export default function CustomerDashboard({
                 <Text style={styles.emptySub}>
                   Explore verified Mandap, Party Plots, and Caterers in Godhra to book for your event.
                 </Text>
+                <TouchableOpacity style={styles.postNowBtn} onPress={onOpenGet5Quotes}>
+                  <Text style={styles.postNowBtnText}>+ Get 5 Event Quotes</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               bookings.map((item) => (
@@ -196,30 +199,43 @@ export default function CustomerDashboard({
 
             <Text style={styles.subSectionTitle}>Payment Audit Trail</Text>
 
-            {directPayments.map((p) => (
-              <View key={p.id} style={styles.paymentHistoryItem}>
-                <View style={styles.payIconBox}>
-                  <Text style={styles.payIcon}>⚡</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={styles.payTitle}>{p.vendor_name}</Text>
-                    <View style={[
-                      styles.statusPillSmall,
-                      p.status === 'vendor_confirmed' ? styles.statusApproved : p.status === 'disputed' ? styles.statusRejected : styles.statusPending
-                    ]}>
-                      <Text style={styles.statusPillSmallText}>
-                        {p.status === 'vendor_confirmed' ? 'CONFIRMED ✓' : p.status === 'disputed' ? 'DISPUTED ⚠️' : 'PENDING ACK ⏳'}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={styles.payDate}>Booking: {p.booking_code} • {p.payment_date} ({p.payment_method})</Text>
-                  <Text style={styles.payRef}>Ref/UTR: {p.payment_reference}</Text>
-                  {p.notes ? <Text style={styles.payNotes}>"{p.notes}"</Text> : null}
-                </View>
-                <Text style={styles.payAmount}>₹{p.amount.toLocaleString('en-IN')}</Text>
+            {directPayments.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyIcon}>💳</Text>
+                <Text style={styles.emptyTitle}>No Direct Payments Recorded Yet</Text>
+                <Text style={styles.emptySub}>
+                  Under our 100% Direct Settlement model, once you confirm a booking with your vendor and make a direct payment via UPI or Cash, verified payment receipts will appear here.
+                </Text>
+                <TouchableOpacity style={styles.postNowBtn} onPress={onOpenGet5Quotes}>
+                  <Text style={styles.postNowBtnText}>+ Get 5 Event Quotes</Text>
+                </TouchableOpacity>
               </View>
-            ))}
+            ) : (
+              directPayments.map((p) => (
+                <View key={p.id} style={styles.paymentHistoryItem}>
+                  <View style={styles.payIconBox}>
+                    <Text style={styles.payIcon}>⚡</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={styles.payTitle}>{p.vendor_name}</Text>
+                      <View style={[
+                        styles.statusPillSmall,
+                        p.status === 'vendor_confirmed' ? styles.statusApproved : p.status === 'disputed' ? styles.statusRejected : styles.statusPending
+                      ]}>
+                        <Text style={styles.statusPillSmallText}>
+                          {p.status === 'vendor_confirmed' ? 'CONFIRMED ✓' : p.status === 'disputed' ? 'DISPUTED ⚠️' : 'PENDING ACK ⏳'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.payDate}>Booking: {p.booking_code} • {p.payment_date} ({p.payment_method})</Text>
+                    <Text style={styles.payRef}>Ref/UTR: {p.payment_reference}</Text>
+                    {p.notes ? <Text style={styles.payNotes}>"{p.notes}"</Text> : null}
+                  </View>
+                  <Text style={styles.payAmount}>₹{p.amount.toLocaleString('en-IN')}</Text>
+                </View>
+              ))
+            )}
           </View>
         )}
 
@@ -400,6 +416,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     lineHeight: 18,
+  },
+  postNowBtn: {
+    backgroundColor: '#1976D2',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginTop: 14,
+  },
+  postNowBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '800',
   },
   bookingCard: {
     backgroundColor: '#ffffff',

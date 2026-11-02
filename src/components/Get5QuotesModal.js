@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import { PANCHMAHAL_TALUKAS } from '../constants/locations';
 import {
   createCustomerEnquiry,
   getCustomerEnquiries,
+  fetchRealtimeCustomerEnquiries,
   submitVendorQuote,
   maskPhoneNumber,
 } from '../services/marketplaceService';
@@ -26,15 +27,31 @@ export default function Get5QuotesModal({
   categories = [],
   makeCall,
   openWhatsApp,
+  user = null,
+  currentUser = null,
 }) {
+  const activeUser = user || currentUser;
+  const isVendorOrAdmin =
+    activeUser?.role === 'vendor' ||
+    activeUser?.role === 'admin' ||
+    activeUser?.role === 'super_admin';
+
   const [activeTab, setActiveTab] = useState('new_request'); // 'new_request' | 'my_quotes' | 'vendor_leads'
+  const [enquiries, setEnquiries] = useState([]);
+
+  // Calculate default future date (30 days from now)
+  const getDefaultEventDate = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split('T')[0];
+  };
 
   // Form State
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [name, setName] = useState(activeUser?.full_name || '');
+  const [phone, setPhone] = useState(activeUser?.phone || '');
   const [eventType, setEventType] = useState('wedding');
   const [location, setLocation] = useState('Godhra (Bamroli Road)');
-  const [eventDate, setEventDate] = useState('2026-12-18');
+  const [eventDate, setEventDate] = useState(getDefaultEventDate());
   const [guestCount, setGuestCount] = useState('350-700 મહેમાનો (Large)');
   const [selectedServices, setSelectedServices] = useState(['mandap', 'catering']);
   const [budget, setBudget] = useState('₹2,00,000 - ₹5,00,000');
@@ -46,9 +63,27 @@ export default function Get5QuotesModal({
   const [vendorQuotePrice, setVendorQuotePrice] = useState('');
   const [vendorQuoteDetails, setVendorQuoteDetails] = useState('');
 
-  if (!visible) return null;
+  // Sync enquiries whenever modal opens or user updates
+  const refreshEnquiries = async () => {
+    const local = getCustomerEnquiries(activeUser);
+    setEnquiries(local || []);
+    try {
+      const live = await fetchRealtimeCustomerEnquiries(activeUser);
+      if (Array.isArray(live)) {
+        setEnquiries([...live]);
+      }
+    } catch (e) {}
+  };
 
-  const enquiries = getCustomerEnquiries();
+  useEffect(() => {
+    if (visible) {
+      if (activeUser?.full_name && !name) setName(activeUser.full_name);
+      if (activeUser?.phone && !phone) setPhone(activeUser.phone);
+      refreshEnquiries();
+    }
+  }, [visible, activeUser]);
+
+  if (!visible) return null;
 
   const toggleService = (catId) => {
     setSelectedServices((prev) =>
@@ -78,6 +113,7 @@ export default function Get5QuotesModal({
     setTimeout(() => {
       const result = createCustomerEnquiry(
         {
+          customer_id: activeUser?.id || null,
           customer_name: name.trim(),
           customer_phone: cleanPhone,
           event_type: eventType,
@@ -93,6 +129,7 @@ export default function Get5QuotesModal({
 
       setSubmitting(false);
       setLastSubmissionResult(result);
+      refreshEnquiries();
       setActiveTab('my_quotes');
 
       Alert.alert(
@@ -100,7 +137,7 @@ export default function Get5QuotesModal({
         `Your Enquiry ID: ${result.enquiryCode}\n\nMatched with ${result.matchedCount} top verified local vendors in Panchmahal.\n\nThey have been notified and will send verified quotations directly to your dashboard & WhatsApp!`,
         [{ text: 'View Quotes & Status' }]
       );
-    }, 800);
+    }, 600);
   };
 
   const handleSimulateVendorQuote = (enquiryId, vendor) => {
@@ -119,6 +156,7 @@ export default function Get5QuotesModal({
 
     setVendorQuotePrice('');
     setVendorQuoteDetails('');
+    refreshEnquiries();
     Alert.alert('Quotation Sent!', `Quotation submitted to customer for Enquiry ${enquiryId}.`);
   };
 
@@ -155,21 +193,27 @@ export default function Get5QuotesModal({
 
             <TouchableOpacity
               style={[styles.tab, activeTab === 'my_quotes' && styles.tabActive]}
-              onPress={() => setActiveTab('my_quotes')}
+              onPress={() => {
+                setActiveTab('my_quotes');
+                refreshEnquiries();
+              }}
             >
               <Text style={[styles.tabText, activeTab === 'my_quotes' && styles.tabTextActive]}>
                 💬 My Quotes ({enquiries.length})
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'vendor_leads' && styles.tabActive]}
-              onPress={() => setActiveTab('vendor_leads')}
-            >
-              <Text style={[styles.tabText, activeTab === 'vendor_leads' && styles.tabTextActive]}>
-                🏢 Vendor Portal
-              </Text>
-            </TouchableOpacity>
+            {/* Vendor Leads Portal is strictly visible to vendors and admins, never confusing regular customers */}
+            {isVendorOrAdmin && (
+              <TouchableOpacity
+                style={[styles.tab, activeTab === 'vendor_leads' && styles.tabActive]}
+                onPress={() => setActiveTab('vendor_leads')}
+              >
+                <Text style={[styles.tabText, activeTab === 'vendor_leads' && styles.tabTextActive]}>
+                  🏢 Vendor Leads
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
