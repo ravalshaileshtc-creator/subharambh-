@@ -38,6 +38,8 @@ import {
   generateWhatsAppReceiptShareText,
   generateA4InvoiceHTML,
   generateA4ReceiptHTML,
+  generateAndDownloadInvoicePDF,
+  INVOICE_I18N,
 } from '../services/billBookService.js';
 import { useTranslation } from '../localization/i18n.js';
 
@@ -73,6 +75,12 @@ export default function BillBookView({
   const [selectedBill, setSelectedBill] = useState(null);
   const [selectedReceiptPayment, setSelectedReceiptPayment] = useState(null);
   const [editingBillId, setEditingBillId] = useState(null);
+
+  // Multilingual Invoice State ('en' | 'gu' | 'hi')
+  const [invoiceLanguage, setInvoiceLanguage] = useState(
+    ['en', 'gu', 'hi'].includes(language) ? language : 'en'
+  );
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   // Form State for Create/Edit Bill
   const [formCustomerName, setFormCustomerName] = useState('');
@@ -405,10 +413,11 @@ export default function BillBookView({
 
   // ----------------------------------------------------------------------------
   // WHATSAPP SHARE, PRINT & DOWNLOAD ACTIONS (PROFESSIONAL A4 LAYOUT)
+  // Multilingual Support: English, Gujarati, Hindi
   // ----------------------------------------------------------------------------
   const handleShareWhatsApp = (bill = selectedBill) => {
     if (!bill) return;
-    const text = generateWhatsAppInvoiceShareText(bill);
+    const text = generateWhatsAppInvoiceShareText(bill, invoiceLanguage);
     const url = `https://wa.me/91${bill.customer_phone}?text=${text}`;
     if (Platform.OS === 'web') {
       window.open(url, '_blank');
@@ -422,7 +431,7 @@ export default function BillBookView({
   const handlePrintInvoice = (bill = selectedBill) => {
     if (!bill) return;
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      const htmlContent = generateA4InvoiceHTML(bill);
+      const htmlContent = generateA4InvoiceHTML(bill, invoiceLanguage);
       const printWindow = window.open('', '_blank', 'width=900,height=960');
       if (printWindow) {
         printWindow.document.open();
@@ -440,27 +449,27 @@ export default function BillBookView({
     }
   };
 
-  const handleDownloadInvoicePDF = (bill = selectedBill) => {
-    if (!bill) return;
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      const htmlContent = generateA4InvoiceHTML(bill);
-      try {
-        const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `Invoice-${bill.bill_number}.html`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      } catch (e) {
-        // Fallback
+  const handleDownloadInvoicePDF = async (bill = selectedBill) => {
+    if (!bill || downloadingPdf) return;
+    setDownloadingPdf(true);
+    try {
+      const res = await generateAndDownloadInvoicePDF(bill, invoiceLanguage);
+      if (res && res.success) {
+        if (Platform.OS !== 'web') {
+          Alert.alert(
+            'PDF Generated',
+            `Invoice saved as ${res.filename}. You can also share directly on WhatsApp.`
+          );
+        }
       }
-      // Also open print window so user can choose "Save as PDF"
-      handlePrintInvoice(bill);
-    } else {
-      Alert.alert('Download PDF', 'Use WhatsApp Share to export and save invoice PDF on mobile.');
+    } catch (err) {
+      console.error('PDF generation error:', err);
+      Alert.alert(
+        'PDF Export Error',
+        `Failed to generate PDF invoice: ${err.message || 'Please check network and try again.'}`
+      );
+    } finally {
+      setDownloadingPdf(false);
     }
   };
 
@@ -1058,6 +1067,7 @@ export default function BillBookView({
 
       {/* ====================================================================== */}
       {/* MODAL 2: PRINTABLE INVOICE PREVIEW MODAL (PROFESSIONAL BLUE + WHITE + GOLDEN) */}
+      {/* Multilingual Support: English, Gujarati, Hindi */}
       {/* ====================================================================== */}
       <Modal visible={invoicePreviewModalVisible} animationType="fade" transparent={true}>
         <View style={styles.modalBackdrop}>
@@ -1065,12 +1075,49 @@ export default function BillBookView({
             {/* Top Toolbar */}
             <View style={styles.invoiceToolbar}>
               <View style={styles.toolbarLeft}>
+                {/* 3-Pill Language Selector */}
+                <View style={styles.langSelectorRow}>
+                  <TouchableOpacity
+                    style={[styles.langPillBtn, invoiceLanguage === 'en' && styles.langPillBtnActive]}
+                    onPress={() => setInvoiceLanguage('en')}
+                  >
+                    <Text style={[styles.langPillBtnText, invoiceLanguage === 'en' && styles.langPillBtnTextActive]}>
+                      English
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.langPillBtn, invoiceLanguage === 'gu' && styles.langPillBtnActive]}
+                    onPress={() => setInvoiceLanguage('gu')}
+                  >
+                    <Text style={[styles.langPillBtnText, invoiceLanguage === 'gu' && styles.langPillBtnTextActive]}>
+                      ગુજરાતી
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.langPillBtn, invoiceLanguage === 'hi' && styles.langPillBtnActive]}
+                    onPress={() => setInvoiceLanguage('hi')}
+                  >
+                    <Text style={[styles.langPillBtnText, invoiceLanguage === 'hi' && styles.langPillBtnTextActive]}>
+                      हिन्दी
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* PDF Download Button with Loading State */}
+                <TouchableOpacity
+                  style={[styles.downloadActionBtn, downloadingPdf && styles.downloadActionBtnDisabled]}
+                  onPress={() => handleDownloadInvoicePDF(selectedBill)}
+                  disabled={downloadingPdf}
+                >
+                  <Text style={styles.downloadActionBtnText}>
+                    {downloadingPdf ? '⏳ Generating PDF...' : '⬇️ Download PDF'}
+                  </Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity style={styles.printActionBtn} onPress={() => handlePrintInvoice(selectedBill)}>
                   <Text style={styles.printActionBtnText}>🖨️ Print Invoice</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.downloadActionBtn} onPress={() => handleDownloadInvoicePDF(selectedBill)}>
-                  <Text style={styles.downloadActionBtnText}>⬇️ Download PDF</Text>
-                </TouchableOpacity>
+
                 {selectedBill && (
                   <TouchableOpacity
                     style={styles.whatsAppActionBtn}
@@ -1088,215 +1135,223 @@ export default function BillBookView({
               </TouchableOpacity>
             </View>
 
-            {selectedBill && (
-              <ScrollView style={styles.invoicePrintBody} showsVerticalScrollIndicator={false}>
-                {/* Brand Banner */}
-                <View style={styles.invoiceBrandBanner}>
-                  <Text style={styles.invoiceBrandLogoText}>✨ SHUBH CELEBRATIONS</Text>
-                  <Text style={styles.invoiceBrandTagline}>All India Event Marketplace & Digital Invoicing</Text>
-                </View>
+            {selectedBill && (() => {
+              const activeLabels = INVOICE_I18N[invoiceLanguage] || INVOICE_I18N.en;
+              const statusLabel =
+                selectedBill.payment_status === 'paid' ? activeLabels.statusPaid :
+                selectedBill.payment_status === 'partial' ? activeLabels.statusPartial :
+                selectedBill.payment_status === 'cancelled' ? activeLabels.statusCancelled : activeLabels.statusUnpaid;
 
-                {/* Letterhead */}
-                <View style={styles.invoiceLetterhead}>
-                  <View style={styles.brandTitleCol}>
-                    <Text style={styles.invoiceVendorName}>{selectedBill.vendor_name}</Text>
-                    <Text style={styles.invoiceVendorSub}>Verified Wedding & Event Vendor</Text>
-                    <Text style={styles.invoiceVendorAddress}>📍 {selectedBill.vendor_location}</Text>
-                    <Text style={styles.invoiceVendorPhone}>📞 Phone: +91 {selectedBill.vendor_phone}</Text>
+              return (
+                <ScrollView style={styles.invoicePrintBody} showsVerticalScrollIndicator={false}>
+                  {/* Brand Banner */}
+                  <View style={styles.invoiceBrandBanner}>
+                    <Text style={styles.invoiceBrandLogoText}>{activeLabels.brandName}</Text>
+                    <Text style={styles.invoiceBrandTagline}>{activeLabels.brandSubtitle}</Text>
                   </View>
-                  <View style={styles.invoiceMetaCol}>
-                    <View style={styles.invoiceBadge}>
-                      <Text style={styles.invoiceBadgeText}>TAX INVOICE</Text>
-                    </View>
-                    <Text style={styles.metaRowText}>
-                      <Text style={styles.metaBold}>Bill No: </Text>
-                      {selectedBill.bill_number}
-                    </Text>
-                    <Text style={styles.metaRowText}>
-                      <Text style={styles.metaBold}>Bill Date: </Text>
-                      {selectedBill.created_at?.split('T')[0] || selectedBill.event_date}
-                    </Text>
-                    <Text style={styles.metaRowText}>
-                      <Text style={styles.metaBold}>Event Date: </Text>
-                      {selectedBill.event_date}
-                    </Text>
 
-                    {/* Status Badge */}
-                    <View style={[
-                      styles.statusPillBadge,
-                      selectedBill.payment_status === 'paid' && styles.statusPillPaid,
-                      selectedBill.payment_status === 'partial' && styles.statusPillPartial,
-                      selectedBill.payment_status === 'unpaid' && styles.statusPillUnpaid,
-                      selectedBill.payment_status === 'cancelled' && styles.statusPillCancelled,
-                    ]}>
-                      <Text style={[
-                        styles.statusPillBadgeText,
-                        selectedBill.payment_status === 'paid' && styles.statusPillPaidText,
-                        selectedBill.payment_status === 'partial' && styles.statusPillPartialText,
-                        selectedBill.payment_status === 'unpaid' && styles.statusPillUnpaidText,
-                        selectedBill.payment_status === 'cancelled' && styles.statusPillCancelledText,
+                  {/* Letterhead */}
+                  <View style={styles.invoiceLetterhead}>
+                    <View style={styles.brandTitleCol}>
+                      <Text style={styles.invoiceVendorName}>{selectedBill.vendor_name}</Text>
+                      <Text style={styles.invoiceVendorSub}>{activeLabels.vendorBadge}</Text>
+                      <Text style={styles.invoiceVendorAddress}>📍 {selectedBill.vendor_location}</Text>
+                      <Text style={styles.invoiceVendorPhone}>📞 {activeLabels.phone}: +91 {selectedBill.vendor_phone}</Text>
+                    </View>
+                    <View style={styles.invoiceMetaCol}>
+                      <View style={styles.invoiceBadge}>
+                        <Text style={styles.invoiceBadgeText}>{activeLabels.taxInvoice}</Text>
+                      </View>
+                      <Text style={styles.metaRowText}>
+                        <Text style={styles.metaBold}>{activeLabels.billNo}: </Text>
+                        {selectedBill.bill_number}
+                      </Text>
+                      <Text style={styles.metaRowText}>
+                        <Text style={styles.metaBold}>{activeLabels.billDate}: </Text>
+                        {selectedBill.created_at?.split('T')[0] || selectedBill.event_date}
+                      </Text>
+                      <Text style={styles.metaRowText}>
+                        <Text style={styles.metaBold}>{activeLabels.eventDate}: </Text>
+                        {selectedBill.event_date}
+                      </Text>
+
+                      {/* Status Badge */}
+                      <View style={[
+                        styles.statusPillBadge,
+                        selectedBill.payment_status === 'paid' && styles.statusPillPaid,
+                        selectedBill.payment_status === 'partial' && styles.statusPillPartial,
+                        selectedBill.payment_status === 'unpaid' && styles.statusPillUnpaid,
+                        selectedBill.payment_status === 'cancelled' && styles.statusPillCancelled,
                       ]}>
-                        {selectedBill.payment_status?.toUpperCase() || 'UNPAID'}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Client & Event Box */}
-                <View style={styles.clientEventBox}>
-                  <View style={styles.clientCol}>
-                    <Text style={styles.boxHeaderTitle}>Billed To (Customer):</Text>
-                    <Text style={styles.clientName}>{selectedBill.customer_name}</Text>
-                    <Text style={styles.clientPhone}>Phone: +91 {selectedBill.customer_phone}</Text>
-                  </View>
-                  <View style={styles.eventCol}>
-                    <Text style={styles.boxHeaderTitle}>Event Particulars:</Text>
-                    <Text style={styles.eventTitle}>{selectedBill.event_name}</Text>
-                    <Text style={styles.eventVenue}>Venue: {selectedBill.event_location}</Text>
-                  </View>
-                </View>
-
-                {/* Itemized Table */}
-                <View style={styles.invoiceTable}>
-                  <View style={styles.tableHeaderRow}>
-                    <Text style={[styles.th, { width: 36, textAlign: 'center' }]}>#</Text>
-                    <Text style={[styles.th, { flex: 1 }]}>Service / Item Description</Text>
-                    <Text style={[styles.th, { width: 48, textAlign: 'center' }]}>Qty</Text>
-                    <Text style={[styles.th, { width: 90, textAlign: 'right' }]}>Rate (₹)</Text>
-                    <Text style={[styles.th, { width: 90, textAlign: 'right' }]}>Amount (₹)</Text>
-                  </View>
-
-                  {(selectedBill.items || []).map((it, idx) => (
-                    <View key={it.id || idx} style={[styles.tableDataRow, idx % 2 === 1 && styles.tableDataRowAlt]}>
-                      <Text style={[styles.td, { width: 36, textAlign: 'center', color: '#64748b' }]}>
-                        {idx + 1}
-                      </Text>
-                      <Text style={[styles.td, { flex: 1, fontWeight: '600', color: '#1e293b' }]}>
-                        {it.description}
-                      </Text>
-                      <Text style={[styles.td, { width: 48, textAlign: 'center' }]}>{it.quantity}</Text>
-                      <Text style={[styles.td, { width: 90, textAlign: 'right' }]}>
-                        ₹{Number(it.rate).toLocaleString('en-IN')}
-                      </Text>
-                      <Text style={[styles.td, { width: 90, textAlign: 'right', fontWeight: '700', color: '#1976D2' }]}>
-                        ₹{Number(it.amount).toLocaleString('en-IN')}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-
-                {/* Totals & Payment Summary Box */}
-                <View style={styles.invoiceFooterSection}>
-                  <View style={styles.termsNotesCol}>
-                    <Text style={styles.termsTitle}>Terms & Conditions:</Text>
-                    <Text style={styles.termsText}>{selectedBill.terms}</Text>
-
-                    {selectedBill.notes ? (
-                      <View style={{ marginTop: 8 }}>
-                        <Text style={styles.termsTitle}>Vendor Notes:</Text>
-                        <Text style={styles.termsText}>{selectedBill.notes}</Text>
-                      </View>
-                    ) : null}
-                  </View>
-
-                  <View style={styles.totalsCol}>
-                    <View style={styles.summaryLine}>
-                      <Text style={styles.summaryLineLabel}>Subtotal:</Text>
-                      <Text style={styles.summaryLineVal}>₹{Number(selectedBill.subtotal).toLocaleString('en-IN')}</Text>
-                    </View>
-                    {selectedBill.discount > 0 && (
-                      <View style={styles.summaryLine}>
-                        <Text style={styles.summaryLineLabel}>Discount:</Text>
-                        <Text style={[styles.summaryLineVal, { color: '#dc2626' }]}>
-                          -₹{Number(selectedBill.discount).toLocaleString('en-IN')}
+                        <Text style={[
+                          styles.statusPillBadgeText,
+                          selectedBill.payment_status === 'paid' && styles.statusPillPaidText,
+                          selectedBill.payment_status === 'partial' && styles.statusPillPartialText,
+                          selectedBill.payment_status === 'unpaid' && styles.statusPillUnpaidText,
+                          selectedBill.payment_status === 'cancelled' && styles.statusPillCancelledText,
+                        ]}>
+                          {statusLabel.toUpperCase()}
                         </Text>
                       </View>
-                    )}
-                    {selectedBill.additional_charges > 0 && (
-                      <View style={styles.summaryLine}>
-                        <Text style={styles.summaryLineLabel}>Additional Charges:</Text>
-                        <Text style={styles.summaryLineVal}>
-                          +₹{Number(selectedBill.additional_charges).toLocaleString('en-IN')}
-                        </Text>
-                      </View>
-                    )}
-                    {selectedBill.tax_amount > 0 && (
-                      <View style={styles.summaryLine}>
-                        <Text style={styles.summaryLineLabel}>GST ({selectedBill.tax_percent}%):</Text>
-                        <Text style={styles.summaryLineVal}>
-                          +₹{Number(selectedBill.tax_amount).toLocaleString('en-IN')}
-                        </Text>
-                      </View>
-                    )}
-                    <View style={styles.grandTotalHighlightBanner}>
-                      <Text style={styles.grandTotalBannerLabel}>Grand Total:</Text>
-                      <Text style={styles.grandTotalBannerVal}>
-                        ₹{Number(selectedBill.grand_total).toLocaleString('en-IN')}
-                      </Text>
-                    </View>
-
-                    <View style={styles.summaryLine}>
-                      <Text style={styles.summaryLineLabel}>Total Paid:</Text>
-                      <Text style={[styles.summaryLineVal, { color: '#15803d', fontWeight: '700' }]}>
-                        ₹{Number(selectedBill.total_paid).toLocaleString('en-IN')}
-                      </Text>
-                    </View>
-
-                    <View style={styles.remainingBalanceHighlightBanner}>
-                      <Text style={styles.remainingBalanceBannerLabel}>Remaining Balance:</Text>
-                      <Text style={styles.remainingBalanceBannerVal}>
-                        ₹{Number(selectedBill.balance_due).toLocaleString('en-IN')}
-                      </Text>
                     </View>
                   </View>
-                </View>
 
-                {/* Payment History Receipts */}
-                {selectedBill.payments && selectedBill.payments.length > 0 && (
-                  <View style={styles.paymentHistoryBox}>
-                    <Text style={styles.boxHeaderTitle}>Payment History & Receipts Issued:</Text>
-                    {selectedBill.payments.map((p, pIdx) => (
-                      <View key={p.id || pIdx} style={styles.paymentHistoryRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.receiptIdText}>#{p.id} • {p.date}</Text>
-                          <Text style={styles.receiptMethodText}>{p.method} ({p.reference})</Text>
-                        </View>
-                        <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                          <Text style={styles.receiptAmountText}>+₹{Number(p.amount).toLocaleString('en-IN')}</Text>
-                          <TouchableOpacity
-                            style={styles.receiptMiniBtn}
-                            onPress={() => handleOpenReceiptModal(selectedBill, p)}
-                          >
-                            <Text style={styles.receiptMiniBtnText}>🧾 View Receipt</Text>
-                          </TouchableOpacity>
-                        </View>
+                  {/* Client & Event Box */}
+                  <View style={styles.clientEventBox}>
+                    <View style={styles.clientCol}>
+                      <Text style={styles.boxHeaderTitle}>{activeLabels.billedTo}:</Text>
+                      <Text style={styles.clientName}>{selectedBill.customer_name}</Text>
+                      <Text style={styles.clientPhone}>{activeLabels.phone}: +91 {selectedBill.customer_phone}</Text>
+                    </View>
+                    <View style={styles.eventCol}>
+                      <Text style={styles.boxHeaderTitle}>{activeLabels.eventParticulars}:</Text>
+                      <Text style={styles.eventTitle}>{selectedBill.event_name}</Text>
+                      <Text style={styles.eventVenue}>{activeLabels.venue}: {selectedBill.event_location}</Text>
+                    </View>
+                  </View>
+
+                  {/* Itemized Table */}
+                  <View style={styles.invoiceTable}>
+                    <View style={styles.tableHeaderRow}>
+                      <Text style={[styles.th, { width: 36, textAlign: 'center' }]}>{activeLabels.srNo}</Text>
+                      <Text style={[styles.th, { flex: 1 }]}>{activeLabels.description}</Text>
+                      <Text style={[styles.th, { width: 48, textAlign: 'center' }]}>{activeLabels.quantity}</Text>
+                      <Text style={[styles.th, { width: 90, textAlign: 'right' }]}>{activeLabels.rate}</Text>
+                      <Text style={[styles.th, { width: 90, textAlign: 'right' }]}>{activeLabels.amount}</Text>
+                    </View>
+
+                    {(selectedBill.items || []).map((it, idx) => (
+                      <View key={it.id || idx} style={[styles.tableDataRow, idx % 2 === 1 && styles.tableDataRowAlt]}>
+                        <Text style={[styles.td, { width: 36, textAlign: 'center', color: '#64748b' }]}>
+                          {idx + 1}
+                        </Text>
+                        <Text style={[styles.td, { flex: 1, fontWeight: '600', color: '#1e293b' }]}>
+                          {it.description}
+                        </Text>
+                        <Text style={[styles.td, { width: 48, textAlign: 'center' }]}>{it.quantity}</Text>
+                        <Text style={[styles.td, { width: 90, textAlign: 'right' }]}>
+                          ₹{Number(it.rate).toLocaleString('en-IN')}
+                        </Text>
+                        <Text style={[styles.td, { width: 90, textAlign: 'right', fontWeight: '700', color: '#1976D2' }]}>
+                          ₹{Number(it.amount).toLocaleString('en-IN')}
+                        </Text>
                       </View>
                     ))}
                   </View>
-                )}
 
-                {/* Signatures Section: Vendor & Customer */}
-                <View style={styles.invoiceSignaturesRow}>
-                  <View style={styles.signatureBox}>
-                    <Text style={styles.signatureTitle}>Client Signature & Acceptance</Text>
-                    <Text style={styles.signatureName}>{selectedBill.customer_name}</Text>
-                    <Text style={styles.signatureDesc}>Received in good order & accepted</Text>
-                  </View>
-                  <View style={styles.signatureBox}>
-                    <Text style={styles.signatureTitle}>Authorized Signatory</Text>
-                    <Text style={styles.signatureName}>{selectedBill.vendor_name}</Text>
-                    <Text style={styles.signatureDesc}>Authorized Seal & Signature</Text>
-                  </View>
-                </View>
+                  {/* Totals & Payment Summary Box */}
+                  <View style={styles.invoiceFooterSection}>
+                    <View style={styles.termsNotesCol}>
+                      <Text style={styles.termsTitle}>{activeLabels.termsTitle}:</Text>
+                      <Text style={styles.termsText}>{selectedBill.terms || activeLabels.defaultTerms}</Text>
 
-                {/* Platform Footer */}
-                <View style={styles.invoiceFooterAttribution}>
-                  <Text style={styles.platformAttribution}>
-                    ✨ Digitally Verified & Issued via Shubh Celebrations • All India Event Marketplace
-                  </Text>
-                </View>
-              </ScrollView>
-            )}
+                      {selectedBill.notes ? (
+                        <View style={{ marginTop: 8 }}>
+                          <Text style={styles.termsTitle}>{activeLabels.notesTitle}:</Text>
+                          <Text style={styles.termsText}>{selectedBill.notes}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+
+                    <View style={styles.totalsCol}>
+                      <View style={styles.summaryLine}>
+                        <Text style={styles.summaryLineLabel}>{activeLabels.subtotal}:</Text>
+                        <Text style={styles.summaryLineVal}>₹{Number(selectedBill.subtotal).toLocaleString('en-IN')}</Text>
+                      </View>
+                      {selectedBill.discount > 0 && (
+                        <View style={styles.summaryLine}>
+                          <Text style={styles.summaryLineLabel}>{activeLabels.discount}:</Text>
+                          <Text style={[styles.summaryLineVal, { color: '#dc2626' }]}>
+                            -₹{Number(selectedBill.discount).toLocaleString('en-IN')}
+                          </Text>
+                        </View>
+                      )}
+                      {selectedBill.additional_charges > 0 && (
+                        <View style={styles.summaryLine}>
+                          <Text style={styles.summaryLineLabel}>{activeLabels.additionalCharges}:</Text>
+                          <Text style={styles.summaryLineVal}>
+                            +₹{Number(selectedBill.additional_charges).toLocaleString('en-IN')}
+                          </Text>
+                        </View>
+                      )}
+                      {selectedBill.tax_amount > 0 && (
+                        <View style={styles.summaryLine}>
+                          <Text style={styles.summaryLineLabel}>{activeLabels.gst} ({selectedBill.tax_percent}%):</Text>
+                          <Text style={styles.summaryLineVal}>
+                            +₹{Number(selectedBill.tax_amount).toLocaleString('en-IN')}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={styles.grandTotalHighlightBanner}>
+                        <Text style={styles.grandTotalBannerLabel}>{activeLabels.grandTotal}:</Text>
+                        <Text style={styles.grandTotalBannerVal}>
+                          ₹{Number(selectedBill.grand_total).toLocaleString('en-IN')}
+                        </Text>
+                      </View>
+
+                      <View style={styles.summaryLine}>
+                        <Text style={styles.summaryLineLabel}>{activeLabels.totalPaid}:</Text>
+                        <Text style={[styles.summaryLineVal, { color: '#15803d', fontWeight: '700' }]}>
+                          ₹{Number(selectedBill.total_paid).toLocaleString('en-IN')}
+                        </Text>
+                      </View>
+
+                      <View style={styles.remainingBalanceHighlightBanner}>
+                        <Text style={styles.remainingBalanceBannerLabel}>{activeLabels.remainingBalance}:</Text>
+                        <Text style={styles.remainingBalanceBannerVal}>
+                          ₹{Number(selectedBill.balance_due).toLocaleString('en-IN')}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Payment History Receipts */}
+                  {selectedBill.payments && selectedBill.payments.length > 0 && (
+                    <View style={styles.paymentHistoryBox}>
+                      <Text style={styles.boxHeaderTitle}>{activeLabels.paymentHistoryTitle}:</Text>
+                      {selectedBill.payments.map((p, pIdx) => (
+                        <View key={p.id || pIdx} style={styles.paymentHistoryRow}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.receiptIdText}>#{p.id} • {p.date}</Text>
+                            <Text style={styles.receiptMethodText}>{p.method} ({p.reference || 'Direct'})</Text>
+                          </View>
+                          <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                            <Text style={styles.receiptAmountText}>+₹{Number(p.amount).toLocaleString('en-IN')}</Text>
+                            <TouchableOpacity
+                              style={styles.receiptMiniBtn}
+                              onPress={() => handleOpenReceiptModal(selectedBill, p)}
+                            >
+                              <Text style={styles.receiptMiniBtnText}>🧾 View Receipt</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Signatures Section: Vendor & Customer */}
+                  <View style={styles.invoiceSignaturesRow}>
+                    <View style={styles.signatureBox}>
+                      <Text style={styles.signatureTitle}>{activeLabels.clientSignature}</Text>
+                      <Text style={styles.signatureName}>{selectedBill.customer_name}</Text>
+                      <Text style={styles.signatureDesc}>{activeLabels.clientSignSub}</Text>
+                    </View>
+                    <View style={styles.signatureBox}>
+                      <Text style={styles.signatureTitle}>{activeLabels.vendorSignature}</Text>
+                      <Text style={styles.signatureName}>{selectedBill.vendor_name}</Text>
+                      <Text style={styles.signatureDesc}>{activeLabels.vendorSignSub}</Text>
+                    </View>
+                  </View>
+
+                  {/* Platform Footer */}
+                  <View style={styles.invoiceFooterAttribution}>
+                    <Text style={styles.platformAttribution}>
+                      {activeLabels.footerText}
+                    </Text>
+                  </View>
+                </ScrollView>
+              );
+            })()}
           </View>
         </View>
       </Modal>
@@ -2200,8 +2255,36 @@ const styles = StyleSheet.create({
   },
   toolbarLeft: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
     flexWrap: 'wrap',
+  },
+  langSelectorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#e2e8f0',
+    padding: 3,
+    borderRadius: 6,
+  },
+  langPillBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 4,
+  },
+  langPillBtnActive: {
+    backgroundColor: '#1976D2',
+  },
+  langPillBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  langPillBtnTextActive: {
+    color: '#ffffff',
+  },
+  downloadActionBtnDisabled: {
+    opacity: 0.65,
   },
   printActionBtn: {
     backgroundColor: '#1976D2',
